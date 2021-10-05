@@ -940,7 +940,7 @@ class EventBase : public TimeoutManager,
   // should only be accessed through public getter
   HHWheelTimer::UniquePtr wheelTimer_;
 
-  LoopCallbackList loopCallbacks_;
+  LoopCallbackList loopCallbacks_;  // 在runInLoop 函数中添加进来的
   LoopCallbackList runBeforeLoopCallbacks_;
   Synchronized<OnDestructionCallback::List> onDestructionCallbacks_;
 
@@ -952,7 +952,7 @@ class EventBase : public TimeoutManager,
 
   // stop_ is set by terminateLoopSoon() and is used by the main loop
   // to determine if it should exit
-  std::atomic<bool> stop_;
+  std::atomic<bool> stop_;  //只有在terminateLoopSoon的时候设置为ture, main_loop停止loop
 
   // The ID of the thread running the main loop.
   // std::thread::id{} if loop is not running.
@@ -960,7 +960,7 @@ class EventBase : public TimeoutManager,
 
   // A notification queue for runInEventBaseThread() to use
   // to send function requests to the EventBase thread.
-  std::unique_ptr<EventBaseAtomicNotificationQueue<Func, FuncRunner>> queue_;
+  std::unique_ptr<EventBaseAtomicNotificationQueue<Func, FuncRunner>> queue_; //该队列用户 从其他线程添加任务到eventbase处理
   ssize_t loopKeepAliveCount_{0};
   std::atomic<ssize_t> loopKeepAliveCountAtomic_{0};
   bool loopKeepAliveActive_{false};

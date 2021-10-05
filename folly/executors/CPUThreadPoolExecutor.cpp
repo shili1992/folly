@@ -304,7 +304,7 @@ void CPUThreadPoolExecutor::threadRun(ThreadPtr thread) {
         threadTimeout_.load(std::memory_order_relaxed));
 
     // Handle thread stopping, either by task timeout, or
-    // by 'poison' task added in join() or stop().
+    // by 'poison' task added in join() or stop().  处理需要停止的线程
     if (UNLIKELY(!task || task.value().poison)) {
       // Actually remove the thread from the list.
       SharedMutex::WriteHolder w{&threadListLock_};
@@ -336,10 +336,11 @@ void CPUThreadPoolExecutor::threadRun(ThreadPtr thread) {
   }
 }
 
+// 停止n个线程
 void CPUThreadPoolExecutor::stopThreads(size_t n) {
   threadsToStop_ += n;
   for (size_t i = 0; i < n; i++) {
-    taskQueue_->addWithPriority(CPUTask(), Executor::LO_PRI);
+    taskQueue_->addWithPriority(CPUTask(), Executor::LO_PRI);  //空的CPUTask poison, 获得该 task的线程将退出
   }
 }
 

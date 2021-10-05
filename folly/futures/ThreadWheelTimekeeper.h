@@ -27,7 +27,8 @@ namespace folly {
 /// The default Timekeeper implementation which uses a HHWheelTimer on an
 /// EventBase in a dedicated thread. Users needn't deal with this directly, it
 /// is used by default by Future methods that work with timeouts.
-class ThreadWheelTimekeeper : public Timekeeper {
+
+class ThreadWheelTimekeeper : public Timekeeper { //    使用folly::HHWheelTimer在一专门的EventBase线程管理超时。
  public:
   /// But it doesn't *have* to be a singleton.
   ThreadWheelTimekeeper();

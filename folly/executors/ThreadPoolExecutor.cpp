@@ -75,6 +75,7 @@ ThreadPoolExecutor::Task::Task(
   enqueueTime_ = std::chrono::steady_clock::now();
 }
 
+//运行一个任务
 void ThreadPoolExecutor::runTask(const ThreadPtr& thread, Task&& task) {
   thread->idle.store(false, std::memory_order_relaxed);
   auto startTime = std::chrono::steady_clock::now();
@@ -173,11 +174,11 @@ void ThreadPoolExecutor::setNumThreads(size_t numThreads) {
     maxThreads_.store(numThreads, std::memory_order_relaxed);
     auto active = activeThreads_.load(std::memory_order_relaxed);
     auto minthreads = minThreads_.load(std::memory_order_relaxed);
-    if (numThreads < minthreads) {
+    if (numThreads < minthreads) { //If numThreads < minthreads reset minThreads to numThreads.
       minthreads = numThreads;
       minThreads_.store(numThreads, std::memory_order_relaxed);
     }
-    if (active > numThreads) {
+    if (active > numThreads) { // If numThreads < active threads, reduce number of running threads.
       numThreadsToJoin = active - numThreads;
       assert(numThreadsToJoin <= active - minthreads);
       ThreadPoolExecutor::removeThreads(numThreadsToJoin, false);
@@ -214,9 +215,9 @@ void ThreadPoolExecutor::addThreads(size_t n) {
   }
   for (auto& thread : newThreads) {
     thread->startupBaton.wait(
-        folly::Baton<>::wait_options().logging_enabled(false));
+        folly::Baton<>::wait_options().logging_enabled(false)); //等待线程创建成功， ThreadPoolExecutor::threadRun 中post
   }
-  for (auto& o : observers_) {
+  for (auto& o : observers_) {  //运行线程启动的时候的 hook
     for (auto& thread : newThreads) {
       o->threadStarted(thread.get());
     }
@@ -224,11 +225,14 @@ void ThreadPoolExecutor::addThreads(size_t n) {
 }
 
 // threadListLock_ is writelocked
+// Stop n threads and put their ThreadPtrs in the stoppedThreads_ queue
+// and remove them from threadList_
 void ThreadPoolExecutor::removeThreads(size_t n, bool isJoin) {
   isJoin_ = isJoin;
   stopThreads(n);
 }
 
+    // 等待各个线程退出，执行join
 void ThreadPoolExecutor::joinStoppedThreads(size_t n) {
   for (size_t i = 0; i < n; i++) {
     auto thread = stoppedThreads_.take();
@@ -237,7 +241,7 @@ void ThreadPoolExecutor::joinStoppedThreads(size_t n) {
 }
 
 void ThreadPoolExecutor::stop() {
-  joinKeepAliveOnce();
+  joinKeepAliveOnce();   //  check 是否需要继续join, 如果需要的话， 继续等待释放信号
   size_t n = 0;
   {
     SharedMutex::WriteHolder w{&threadListLock_};
@@ -248,7 +252,7 @@ void ThreadPoolExecutor::stop() {
     n += threadsToJoin_.load(std::memory_order_relaxed);
     threadsToJoin_.store(0, std::memory_order_relaxed);
   }
-  joinStoppedThreads(n);
+  joinStoppedThreads(n);  // 等待各个线程退出，执行join
   CHECK_EQ(0, threadList_.get().size());
   CHECK_EQ(0, stoppedThreads_.size());
 }

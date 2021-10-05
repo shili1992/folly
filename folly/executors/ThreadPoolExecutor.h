@@ -45,11 +45,14 @@ namespace folly {
  * ThreadPoolExecutors' subclass (typically by LifoSem try_take_for
  * timing out).  Idle threads should be removed from threadList_, and
  * threadsToJoin incremented, and activeThreads_ decremented.
- *
+ *    ThreadPoolExecutor可以在minThreads_和maxThreads_之间改变它们的实际运行线程数，由activeThreads_跟踪。 *
+ *    join一个空闲线程的实际实现方式由ThreadPoolExecutors的子类（通常由LifoSem try_take_for超时）实现。
+ *    空闲线程应从threadList_中删除，并 threadToJoin 递增，而activeThreads_递减。
  * On task add(), if an executor can garantee there is an active
  * thread that will handle the task, then nothing needs to be done.
  * If not, then ensureActiveThreads() should be called to possibly
  * start another pool thread, up to maxThreads_.
+ * 在add（）上，如果执行者可以保证存在一个活动线程来处理任务，则无需执行任何操作。如果没有，则应确保调用ActiveActives（）启动另一个池线程，直到maxThreads_。
  *
  * ensureJoined() is called on add(), such that we can join idle
  * threads that were destroyed (which can't be joined from
@@ -88,7 +91,7 @@ class ThreadPoolExecutor : public DefaultKeepAliveExecutor {
   }
 
   size_t numThreads() const;
-  void setNumThreads(size_t numThreads);
+  void setNumThreads(size_t numThreads);  //设置最大线程数量
 
   // Return actual number of active threads -- this could be different from
   // numThreads() due to ThreadPoolExecutor's dynamic behavior.
@@ -139,8 +142,8 @@ class ThreadPoolExecutor : public DefaultKeepAliveExecutor {
   struct TaskStats {
     TaskStats() : expired(false), waitTime(0), runTime(0), requestId(0) {}
     bool expired;
-    std::chrono::nanoseconds waitTime;
-    std::chrono::nanoseconds runTime;
+    std::chrono::nanoseconds waitTime;  //任务等待时间
+    std::chrono::nanoseconds runTime; //任务运行时间
     std::chrono::steady_clock::time_point enqueueTime;
     uint64_t requestId;
   };
@@ -162,6 +165,7 @@ class ThreadPoolExecutor : public DefaultKeepAliveExecutor {
    * Observer interface for thread start/stop.
    * Provides hooks so actions can be taken when
    * threads are created
+   * 线程启动/停止的观察器接口。 用于启动或者停止时候的hook
    */
   class Observer {
    public:
@@ -204,10 +208,10 @@ class ThreadPoolExecutor : public DefaultKeepAliveExecutor {
 
     static std::atomic<uint64_t> nextId;
     uint64_t id;
-    std::thread handle;
-    std::atomic<bool> idle;
-    folly::AtomicStruct<std::chrono::steady_clock::time_point> lastActiveTime;
-    folly::Baton<> startupBaton;
+    std::thread handle;  //具体的执行线程
+    std::atomic<bool> idle;  //线程运行task的时候为false, 不运行为true
+    folly::AtomicStruct<std::chrono::steady_clock::time_point> lastActiveTime; //线程最后活跃的时间
+    folly::Baton<> startupBaton; //线程启动的标记， 其他时候post
     std::shared_ptr<TaskStatsCallbackRegistry> taskStatsCallbacks;
   };
 
@@ -225,7 +229,7 @@ class ThreadPoolExecutor : public DefaultKeepAliveExecutor {
     std::shared_ptr<folly::RequestContext> context_;
   };
 
-  void runTask(const ThreadPtr& thread, Task&& task);
+  void runTask(const ThreadPtr& thread, Task&& task);  //运行一个任务
 
   // The function that will be bound to pool threads. It must call
   // thread->startupBaton.post() when it's ready to consume work.
@@ -311,7 +315,7 @@ class ThreadPoolExecutor : public DefaultKeepAliveExecutor {
   std::shared_ptr<ThreadFactory> threadFactory_;
   std::string namePrefix_;
 
-  ThreadList threadList_;
+  ThreadList threadList_;  // 所有的线程列表
   SharedMutex threadListLock_;
   StoppedThreadQueue stoppedThreads_;
   std::atomic<bool> isJoin_{false}; // whether the current downsizing is a join
@@ -333,20 +337,21 @@ class ThreadPoolExecutor : public DefaultKeepAliveExecutor {
 
   // These are only modified while holding threadListLock_, but
   // are read without holding the lock.
-  std::atomic<size_t> maxThreads_{0};
-  std::atomic<size_t> minThreads_{0};
-  std::atomic<size_t> activeThreads_{0};
+  std::atomic<size_t> maxThreads_{0};  //最大的线程数
+  std::atomic<size_t> minThreads_{0};    //配置的最小线程数量
+  std::atomic<size_t> activeThreads_{0};  //当前活跃的最大线程数量
 
   std::atomic<size_t> threadsToJoin_{0};
   std::atomic<std::chrono::milliseconds> threadTimeout_;
 
+  //  check 是否需要继续join, 如果需要的话， 继续等待释放信号
   void joinKeepAliveOnce() {
     if (!std::exchange(keepAliveJoined_, true)) {
       joinKeepAlive();
     }
   }
 
-  bool keepAliveJoined_{false};
+  bool keepAliveJoined_{false};   //表示是否需要继续等待 继续join
 };
 
 } // namespace folly

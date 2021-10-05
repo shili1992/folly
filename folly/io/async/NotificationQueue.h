@@ -65,6 +65,10 @@ namespace folly {
  * spinning trying to move a message off the queue and failing, and then
  * retrying.
  */
+
+// 生产者-消费者队列，用于在EventBase线程之间传递消息。
+// 消息可以从任何线程添加到队列中。多个消费者可以从多个EventBase线程监听队列。（多个消费者eventbase可以同事queue中的task）
+// 当仍然有消费者注册为从队列接收事件时，NotificationQueue可能不会被销毁。用户需要确保在销毁队列之前取消所有消费者的注册。
 template <typename MessageT>
 class NotificationQueue {
   struct Node : public boost::intrusive::slist_base_hook<
@@ -208,11 +212,11 @@ class NotificationQueue {
     }
     void init(EventBase* eventBase, NotificationQueue* queue);
 
-    NotificationQueue* queue_;
+    NotificationQueue* queue_; // consumers要处理的事件
     bool* destroyedFlagPtr_;
     uint32_t maxReadAtOnce_;
-    EventBase* base_;
-    bool active_{false};
+    EventBase* base_;    //可以用来处理加入到队列的事件通知
+    bool active_{false};  //在func callback执行的时候，也就是处理是task， active为true
   };
 
   class SimpleConsumer {
@@ -268,7 +272,7 @@ class NotificationQueue {
 
 #if __has_include(<sys/eventfd.h>)
     if (fdType == FdType::EVENTFD) {
-      eventfd_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+      eventfd_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);  //初始化一个事件通知的fd, 可以通过事件loop 方式处理
       if (eventfd_ == -1) {
         if (errno == ENOSYS || errno == EINVAL) {
           // eventfd not availalble
@@ -574,12 +578,14 @@ class NotificationQueue {
       }
       // We only need to signal an event if not all consumers are
       // awake.
+      // 如果当前活跃的 Consumer 数量少于注册的Consumers数量， 则唤醒consumer（numActiveConsumers_++）
+      // 进行处理任务（consumer会一直处理线程知道链表为空 numActiveConsumers_--）。
       if (numActiveConsumers_ < numConsumers_) {
         signal = true;
       }
-      queue_.push_back(*data.release());
+      queue_.push_back(*data.release()); //加入到链表中， 等待其他任务执行完毕后，在来执行
       if (signal) {
-        ensureSignalLocked();
+        ensureSignalLocked();  //通知对应的evenbase 事件来进行处理queue上的任务。
       }
     }
     return true;
@@ -631,8 +637,8 @@ class NotificationQueue {
   uint32_t advisoryMaxQueueSize_;
   pid_t pid_;
   boost::intrusive::slist<Node, boost::intrusive::cache_last<true>> queue_;
-  int numConsumers_{0};
-  std::atomic<int> numActiveConsumers_{0};
+  int numConsumers_{0};  //消费者的数量， init的时候加1，  stop的时候减一
+  std::atomic<int> numActiveConsumers_{0};  //当前正在处理的task的 并发的数量
   bool draining_{false};
 };
 
@@ -649,9 +655,11 @@ void NotificationQueue<MessageT>::Consumer::destroy() {
   DelayedDestruction::destroy();
 }
 
+//当有任务添加到队列的时候， fd 对应的事件already, 调用回调函数进行处理
 template <typename MessageT>
 void NotificationQueue<MessageT>::Consumer::handlerReady(
     uint16_t /*events*/) noexcept {
+  VLOG(5) << "handlerReady(): Starting loop.";
   consumeMessages(false);
 }
 
@@ -660,18 +668,19 @@ void NotificationQueue<MessageT>::Consumer::consumeMessages(
     bool isDrain, size_t* numConsumed) noexcept {
   DestructorGuard dg(this);
   uint32_t numProcessed = 0;
-  setActive(true);
+  setActive(true);  //开始处理任务的时候，变成active 状态
   SCOPE_EXIT {
     if (queue_) {
       queue_->syncSignalAndQueue();
     }
   };
-  SCOPE_EXIT { setActive(false, /* shouldLock = */ true); };
+  SCOPE_EXIT { setActive(false, /* shouldLock = */ true); };  //退出的 时候 设置成inactive状态
   SCOPE_EXIT {
     if (numConsumed != nullptr) {
       *numConsumed = numProcessed;
     }
   };
+  // 处理链表中的任务，直到链表为空为止。
   while (true) {
     // Now pop the message off of the queue.
     //
@@ -685,6 +694,7 @@ void NotificationQueue<MessageT>::Consumer::consumeMessages(
     bool locked = true;
 
     try {
+        //直到 队列中没有任何items， 则退出此次执行
       if (UNLIKELY(queue_->queue_.empty())) {
         // If there is no message, we've reached the end of the queue, return.
         setActive(false);
@@ -711,11 +721,11 @@ void NotificationQueue<MessageT>::Consumer::consumeMessages(
 
       locked = false;
 
-      // Call the callback
+      // Call the callback 调用回调
       bool callbackDestroyed = false;
       CHECK(destroyedFlagPtr_ == nullptr);
       destroyedFlagPtr_ = &callbackDestroyed;
-      messageAvailable(std::move(data->msg_));
+      messageAvailable(std::move(data->msg_)); //EventBase::FunctionRunner
       destroyedFlagPtr_ = nullptr;
 
       // Make sure message destructor is called with the correct RequestContext.
@@ -785,6 +795,7 @@ void NotificationQueue<MessageT>::Consumer::init(
   }
   queue_->ensureSignal();
 
+  // 本身为EventHandler， 注册事件就绪后的处理函数  Consumer.handlerReady
   if (queue_->eventfd_ >= 0) {
     initHandler(eventBase, folly::NetworkSocket::fromFd(queue_->eventfd_));
   } else {
@@ -830,6 +841,7 @@ bool NotificationQueue<MessageT>::Consumer::consumeUntilDrained(
   return true;
 }
 
+    // 处理队列中请求，直到 队列为空
 template <typename MessageT>
 template <typename F>
 void NotificationQueue<MessageT>::SimpleConsumer::consume(F&& foreach) {

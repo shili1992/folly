@@ -48,6 +48,7 @@ class DefaultKeepAliveExecutor : public virtual Executor {
   folly::Executor::KeepAlive<> weakRef() { return getWeakRef(*this); }
 
  protected:
+    //继续等待，等待释放信号
   void joinKeepAlive() {
     DCHECK(keepAlive_);
     keepAlive_.reset();
@@ -151,13 +152,13 @@ class DefaultKeepAliveExecutor : public virtual Executor {
         controlBlock_->keepAliveCount_.fetch_sub(1, std::memory_order_acq_rel);
     DCHECK(keepAliveCount >= 1);
 
-    if (keepAliveCount == 1) {
+    if (keepAliveCount == 1) { // 最后一个， 没有人在使用该线程了， 对应的线程可以释放
       keepAliveReleaseBaton_.post(); // std::memory_order_release
     }
   }
 
   std::shared_ptr<ControlBlock> controlBlock_{std::make_shared<ControlBlock>()};
-  Baton<> keepAliveReleaseBaton_;
+  Baton<> keepAliveReleaseBaton_;  //等待释放信号， 最后那个executor的调用 keepAliveRelease后会释放
   KeepAlive<DefaultKeepAliveExecutor> keepAlive_{makeKeepAlive(this)};
 };
 

@@ -382,26 +382,31 @@ bool EventBase::loopMain(int flags, bool ignoreKeepAlive) {
     idleStart = prev;
   }
 
+    // 两个loop, 一个是外面eventbase loop, 一个libevent的loop
   while (!stop_.load(std::memory_order_relaxed)) {
     if (!ignoreKeepAlive) {
       applyLoopKeepAlive();
     }
     ++nextLoopCnt_;
 
+    // 在loop 之前运行runBeforeLoopCallbacks_中注册的func
     // Run the before loop callbacks
     LoopCallbackList callbacks;
     callbacks.swap(runBeforeLoopCallbacks_);
 
+      //运行callbacks
     runLoopCallbacks(callbacks);
 
     // nobody can add loop callbacks from within this thread if
     // we don't have to handle anything to start with...
+    // 进入eventloop, 回调注册的callback
     if (blocking && loopCallbacks_.empty()) {
       res = evb_->eb_event_base_loop(EVLOOP_ONCE);
     } else {
       res = evb_->eb_event_base_loop(EVLOOP_ONCE | EVLOOP_NONBLOCK);
     }
 
+    //运行所有的loopCallbacks_ 中的callback
     ranLoopCallbacks = runLoopCallbacks();
 
     if (enableTimeMeasurement_) {
@@ -452,20 +457,21 @@ bool EventBase::loopMain(int flags, bool ignoreKeepAlive) {
       VLOG(11) << "EventBase " << this << " did not timeout";
     }
 
+    // 当没有注册的事件了，则处理 内部queue_事件
     // Event loop indicated that there were no more events (NotificationQueue
     // was registered as an internal event and there were no other registered
     // events).
-    if (res != 0) {
+    if (res != 0) { //只有 event_base_loop 中没有任何事件， 则会进入此分支
       // Since Notification Queue is marked 'internal' some events may not have
       // run.  Run them manually if so, and continue looping.
       //
       if (!queue_->empty()) {
         ExecutionObserverScopeGuard guard(executionObserver_, queue_.get());
-        queue_->execute();
+        queue_->execute();  //运行 queue_的所有的任务
       } else if (!ranLoopCallbacks) {
         // If there were no more events and we also didn't have any loop
         // callbacks to run, there is nothing left to do.
-        break;
+        break;  //如果没有任何task， 停止loop
       }
     }
 
@@ -587,6 +593,7 @@ void EventBase::terminateLoopSoon() {
   }
 }
 
+//只能在evevbase线程中调用，
 void EventBase::runInLoop(
     LoopCallback* callback,
     bool thisIteration,
@@ -601,6 +608,7 @@ void EventBase::runInLoop(
   }
 }
 
+//只能在evevbase线程中调用，
 void EventBase::runInLoop(Func cob, bool thisIteration) {
   dcheckIsInEventBaseThread();
   auto wrapper = new FunctionLoopCallback(std::move(cob));
@@ -644,11 +652,13 @@ void EventBase::runInEventBaseThread(Func fn) noexcept {
   }
 
   // Short-circuit if we are already in our event base
+  // 如果是同一个线程
   if (inRunningEventBaseThread()) {
     runInLoop(std::move(fn));
     return;
   }
 
+  // 如果是不同的线程中运行的， 先要将这个func task加入到队列中。 会被evenbase线程处理掉
   queue_->putMessage(std::move(fn));
 }
 
@@ -709,6 +719,7 @@ void EventBase::runLoopCallbacks(LoopCallbackList& currentCallbacks) {
   }
 }
 
+// 运行loopCallbacks_ 中所有的callback 函数
 bool EventBase::runLoopCallbacks() {
   bumpHandlingTime();
   if (!loopCallbacks_.empty()) {

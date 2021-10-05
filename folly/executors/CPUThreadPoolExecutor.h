@@ -210,12 +210,12 @@ class CPUThreadPoolExecutor : public ThreadPoolExecutor {
   std::unique_ptr<folly::QueueObserverFactory> createQueueObserverFactory();
   QueueObserver* FOLLY_NULLABLE getQueueObserver(int8_t pri);
 
-  std::unique_ptr<BlockingQueue<CPUTask>> taskQueue_;
+  std::unique_ptr<BlockingQueue<CPUTask>> taskQueue_; //任务队列
   // It is possible to have as many detectors as there are priorities,
   std::array<std::atomic<folly::QueueObserver*>, UCHAR_MAX + 1> queueObservers_;
   std::unique_ptr<folly::QueueObserverFactory> queueObserverFactory_{
       createQueueObserverFactory()};
-  std::atomic<ssize_t> threadsToStop_{0};
+  std::atomic<ssize_t> threadsToStop_{0};  // 需要stop 线程的数量
   Options::Blocking prohibitBlockingOnThreadPools_ = Options::Blocking::allow;
 };
 
