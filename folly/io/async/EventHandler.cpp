@@ -40,6 +40,7 @@ EventHandler::~EventHandler() {
   unregisterHandler();
 }
 
+// 注册 events 回调函数
 bool EventHandler::registerImpl(uint16_t events, bool internal) {
   assert(event_.eb_ev_base() != nullptr);
 
@@ -60,9 +61,11 @@ bool EventHandler::registerImpl(uint16_t events, bool internal) {
   // Unfortunately, event_set() resets the event_base, so we have to remember
   // it before hand, then pass it back into event_base_set() afterwards
   auto* evb = event_.eb_ev_base();
+  // 设置libevent中evnet fd 事件 回调函数等, 注意这里设置进去的为this，
+  // 当IO完成时， 统一调用libeventCallback -> handle_ready
   event_.eb_event_set(
       event_.eb_ev_fd(), short(events), &EventHandler::libeventCallback, this);
-  event_.eb_event_base_set(evb);
+  event_.eb_event_base_set(evb);  // 设置 事件 从属的event_base
 
   // Set EVLIST_INTERNAL if this is an internal event
   if (internal) {
@@ -86,6 +89,7 @@ bool EventHandler::registerImpl(uint16_t events, bool internal) {
   // if the I/O event flags haven't changed.  Using a separate event struct is
   // therefore slightly more efficient in this case (although it does take up
   // more space).
+  // 添加事件,
   if (event_.eb_event_add(nullptr) < 0) {
     LOG(ERROR) << "EventBase: failed to register event handler for fd "
                << event_.eb_ev_fd() << ": " << errnoStr(errno);
@@ -143,6 +147,7 @@ void EventHandler::ensureNotRegistered(const char* fn) {
   }
 }
 
+// 注册的回调函数， 调用handlerReady
 void EventHandler::libeventCallback(libevent_fd_t fd, short events, void* arg) {
   auto handler = reinterpret_cast<EventHandler*>(arg);
   assert(fd == handler->event_.eb_ev_fd());
@@ -156,7 +161,7 @@ void EventHandler::libeventCallback(libevent_fd_t fd, short events, void* arg) {
   // this can't possibly fire if handler->eventBase_ is nullptr
   handler->eventBase_->bumpHandlingTime();
 
-  handler->handlerReady(uint16_t(events));
+  handler->handlerReady(uint16_t(events));  // 调用 接口的handlerReady 函数
 
   if (observer) {
     observer->stopped(reinterpret_cast<uintptr_t>(handler));

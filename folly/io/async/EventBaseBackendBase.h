@@ -177,6 +177,7 @@ class EventBaseEvent {
 
   const EventCallback& getCallback() const { return cb_; }
 
+  // 设置libevent中evnet fd 回调函数等
   void eb_event_set(
       libevent_fd_t fd,
       short events,
@@ -208,7 +209,7 @@ class EventBaseEvent {
   bool setEdgeTriggered();
 
  protected:
-  struct event event_;
+  struct event event_;   // libevent中的event, 设置回调函数和关注的事件
   EventBase* evb_{nullptr};
   void* userData_{nullptr};
   FreeFunction freeFn_{nullptr};

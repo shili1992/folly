@@ -175,6 +175,7 @@ class EventBase : public TimeoutManager,
     std::shared_ptr<RequestContext> context_;
   };
 
+  //  function的简单封装
   class FunctionLoopCallback : public LoopCallback {
    public:
     explicit FunctionLoopCallback(Func&& function)
@@ -941,13 +942,15 @@ class EventBase : public TimeoutManager,
   HHWheelTimer::UniquePtr wheelTimer_;
 
   LoopCallbackList loopCallbacks_;  // 在runInLoop 函数中添加进来的
-  LoopCallbackList runBeforeLoopCallbacks_;
+  LoopCallbackList runBeforeLoopCallbacks_;   // 每次loop 之前的都会执行的回调函数
   Synchronized<OnDestructionCallback::List> onDestructionCallbacks_;
 
   // This will be null most of the time, but point to currentCallbacks
   // if we are in the middle of running loop callbacks, such that
   // runInLoop(..., true) will always run in the current loop
   // iteration.
+  // 在执行loopCallbacks_时 指向currentCallbacks(参考runLoopCallbacks函数)，
+  // 在执行之后 为nullptr.  如果在执行 loop callback之中， 并且要求在this loop执行，则添加到runOnceCallbacks_中。
   LoopCallbackList* runOnceCallbacks_;
 
   // stop_ is set by terminateLoopSoon() and is used by the main loop

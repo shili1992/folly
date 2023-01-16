@@ -38,11 +38,13 @@ struct epollop {
 #endif
 
 namespace folly {
+// 设置 事件 从属的event_base
 void EventBaseEvent::eb_ev_base(EventBase* evb) {
   evb_ = evb;
   event_.ev_base = evb ? evb->getLibeventBase() : nullptr;
 }
 
+// 设置 事件 从属的event_base
 int EventBaseEvent::eb_event_base_set(EventBase* evb) {
   evb_ = evb;
   auto* base = evb_ ? (evb_->getLibeventBase()) : nullptr;

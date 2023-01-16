@@ -393,20 +393,21 @@ bool EventBase::loopMain(int flags, bool ignoreKeepAlive) {
     // Run the before loop callbacks
     LoopCallbackList callbacks;
     callbacks.swap(runBeforeLoopCallbacks_);
-
-      //运行callbacks
+      //运行每次loop之前会执行的回调函数
     runLoopCallbacks(callbacks);
 
     // nobody can add loop callbacks from within this thread if
     // we don't have to handle anything to start with...
     // 进入eventloop, 回调注册的callback
     if (blocking && loopCallbacks_.empty()) {
+      // 阻塞模式， 每次只loop 一次
       res = evb_->eb_event_base_loop(EVLOOP_ONCE);
     } else {
+      // 非阻塞模式，loop只运行一次。 并且如果没有事件，也是 NONBLOCK
       res = evb_->eb_event_base_loop(EVLOOP_ONCE | EVLOOP_NONBLOCK);
     }
 
-    //运行所有的loopCallbacks_ 中的callback
+    //在event_base_loop之后， 运行所有 的loopCallbacks_ 中的callback
     ranLoopCallbacks = runLoopCallbacks();
 
     if (enableTimeMeasurement_) {
@@ -461,7 +462,8 @@ bool EventBase::loopMain(int flags, bool ignoreKeepAlive) {
     // Event loop indicated that there were no more events (NotificationQueue
     // was registered as an internal event and there were no other registered
     // events).
-    if (res != 0) { //只有 event_base_loop 中没有任何事件， 则会进入此分支
+    if (res != 0) {
+      //只有 event_base_loop 中没有任何事件， 则会进入此分支
       // Since Notification Queue is marked 'internal' some events may not have
       // run.  Run them manually if so, and continue looping.
       //
@@ -601,19 +603,19 @@ void EventBase::runInLoop(
   dcheckIsInEventBaseThread();
   callback->cancelLoopCallback();
   callback->context_ = std::move(rctx);
-  if (runOnceCallbacks_ != nullptr && thisIteration) {
+  if (runOnceCallbacks_ != nullptr && thisIteration) { // 如果在执行 loop callback之中， 并且要求在this loop执行，则添加到runOnceCallbacks_中。
     runOnceCallbacks_->push_back(*callback);
   } else {
     loopCallbacks_.push_back(*callback);
   }
 }
 
-//只能在evevbase线程中调用，
+//只能在evevbase线程中调用，默认在下一个loop中执行
 void EventBase::runInLoop(Func cob, bool thisIteration) {
   dcheckIsInEventBaseThread();
   auto wrapper = new FunctionLoopCallback(std::move(cob));
   wrapper->context_ = RequestContext::saveContext();
-  if (runOnceCallbacks_ != nullptr && thisIteration) {
+  if (runOnceCallbacks_ != nullptr && thisIteration) { // 如果在执行 loop callback之中， 并且要求在this loop执行，则添加到runOnceCallbacks_中。
     runOnceCallbacks_->push_back(*wrapper);
   } else {
     loopCallbacks_.push_back(*wrapper);
@@ -634,6 +636,7 @@ void EventBase::runOnDestruction(Func f) {
   runOnDestruction(*callback);
 }
 
+// 添加 每次loop 之前的都会执行的回调函数
 void EventBase::runBeforeLoop(LoopCallback* callback) {
   dcheckIsInEventBaseThread();
   callback->cancelLoopCallback();
@@ -709,6 +712,7 @@ void EventBase::runImmediatelyOrRunInEventBaseThread(Func fn) noexcept {
   }
 }
 
+// 运行所有的callbacks
 void EventBase::runLoopCallbacks(LoopCallbackList& currentCallbacks) {
   while (!currentCallbacks.empty()) {
     LoopCallback* callback = &currentCallbacks.front();
