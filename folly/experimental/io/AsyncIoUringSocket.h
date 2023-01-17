@@ -51,7 +51,6 @@ class AsyncDetachFdCallback {
   virtual void fdDetachFail(const AsyncSocketException& ex) noexcept = 0;
 };
 
-#if __has_include(<liburing.h>)
 
 class AsyncIoUringSocket : public AsyncSocketTransport {
  public:
@@ -494,7 +493,5 @@ class AsyncIoUringSocket : public AsyncSocketTransport {
 
   void closeProcessSubmit(struct io_uring_sqe* sqe);
 };
-
-#endif
 
 } // namespace folly

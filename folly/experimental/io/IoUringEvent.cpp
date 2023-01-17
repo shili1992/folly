@@ -16,8 +16,6 @@
 
 #include <folly/experimental/io/IoUringEvent.h>
 
-#if __has_include(<liburing.h>)
-
 #include <sys/eventfd.h>
 
 namespace folly {
@@ -118,4 +116,3 @@ void IoUringEvent::runLoopCallback() noexcept {
 }
 
 } // namespace folly
-#endif

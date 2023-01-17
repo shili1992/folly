@@ -24,21 +24,11 @@
 
 namespace folly {
 
-#if __has_include(<libaio.h>)
 static constexpr bool has_aio = true;
 using aio_type = AsyncIO;
-#else
-static constexpr bool has_aio = false;
-using aio_type = void;
-#endif
 
-#if __has_include(<liburing.h>)
 static constexpr auto has_io_uring_rt = &IoUring::isAvailable;
 using io_uring_type = IoUring;
-#else
-static constexpr auto has_io_uring_rt = +[] { return false; };
-using io_uring_type = void;
-#endif
 
 template <typename AsyncIOType>
 void SimpleAsyncIO::init() {

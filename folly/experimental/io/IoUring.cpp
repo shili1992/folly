@@ -30,8 +30,6 @@
 #include <folly/String.h>
 #include <folly/portability/Unistd.h>
 
-#if __has_include(<liburing.h>)
-
 // helpers
 namespace {
 // http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
@@ -340,4 +338,3 @@ Range<AsyncBase::Op**> IoUring::doWait(
 
 } // namespace folly
 
-#endif

@@ -19,8 +19,6 @@
 #include <folly/experimental/io/IoUringEventBaseLocal.h>
 #include <folly/io/async/EventBaseLocal.h>
 
-#if __has_include(<liburing.h>)
-
 namespace folly {
 
 namespace {
@@ -71,4 +69,3 @@ void IoUringEventBaseLocal::attach(
 
 } // namespace folly
 
-#endif

@@ -23,8 +23,6 @@
 
 namespace folly {
 
-#if __has_include(<liburing.h>)
-
 class IoUringEvent : public EventHandler, public EventBase::LoopCallback {
  public:
   IoUringEvent(
@@ -55,6 +53,5 @@ class IoUringEvent : public EventHandler, public EventBase::LoopCallback {
   std::optional<File> eventFd_;
 };
 
-#endif
 
 } // namespace folly
