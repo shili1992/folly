@@ -52,6 +52,20 @@ namespace folly {
 
 namespace {
 
+#if FOLLY_IO_URING_UP_TO_DATE
+int ioUringEnableRings(FOLLY_MAYBE_UNUSED struct io_uring* ring) {
+  // Ideally this would call ::io_uring_enable_rings directly which just runs
+  // the below however this was missing from a stable version of liburing, which
+  // means that some distributions were not able to compile it. see
+  // https://github.com/axboe/liburing/issues/773
+
+  // since it is so simple, just implement it here until the fix rolls out to an
+  // acceptable number of OSS distributions.
+  return ::io_uring_register(
+      ring->ring_fd, IORING_REGISTER_ENABLE_RINGS, nullptr, 0);
+}
+#endif
+
 struct SignalRegistry {
   struct SigInfo {
     struct sigaction sa_ {};
@@ -1356,7 +1370,7 @@ void IoUringBackend::delayedInit() {
   if (usingDeferTaskrun_) {
     // usingDeferTaskrun_ is guarded already on having an up to date liburing
 #if FOLLY_IO_URING_UP_TO_DATE
-    int ret = ::io_uring_enable_rings(&ioRing_);
+    int ret = ioUringEnableRings(&ioRing_);
     if (ret) {
       LOG(ERROR) << "io_uring_enable_rings gave " << folly::errnoStr(-ret);
     }
@@ -1833,10 +1847,17 @@ int IoUringBackend::submitBusyCheck(
       }
     } else {
 #if FOLLY_IO_URING_UP_TO_DATE
-      res = ::io_uring_submit_and_get_events(&ioRing_);
-      if (res >= 0) {
-        i = waitingToSubmit_; // this is ok if we are using SUBMIT_ALL
-        break;
+      if (usingDeferTaskrun_) {
+        // usingDeferTaskrun_ implies SUBMIT_ALL, and we definitely
+        // want to do get_events() to process outstanding work
+        res = ::io_uring_submit_and_get_events(&ioRing_);
+        if (res >= 0) {
+          // this is ok since we are using SUBMIT_ALL
+          i = waitingToSubmit_;
+          break;
+        }
+      } else {
+        res = ::io_uring_submit(&ioRing_);
       }
 #else
       res = ::io_uring_submit(&ioRing_);
