@@ -37,13 +37,13 @@ IoUringEvent::IoUringEvent(
     if (ret) {
       throw std::runtime_error("cannot register eventfd");
     }
-    changeHandlerFD(NetworkSocket{eventFd_->fd()});
+    changeHandlerFD(NetworkSocket{eventFd_->fd()});  // 设置 监控 eventfd上事件
   } else {
-    changeHandlerFD(NetworkSocket{backend_.ioRingPtr()->ring_fd});
+    changeHandlerFD(NetworkSocket{backend_.ioRingPtr()->ring_fd});  // 监控ring_fd 事件
   }
 
-  registerHandler(EventHandler::PERSIST | EventHandler::READ);
-  edgeTriggered_ = use_event_fd && setEdgeTriggered();
+  registerHandler(EventHandler::PERSIST | EventHandler::READ);  // 注册可读事件
+  edgeTriggered_ = use_event_fd && setEdgeTriggered(); // 边沿触发
 
   eventBase->runBeforeLoop(this);
 }

@@ -67,7 +67,7 @@ class IoUringOp : public AsyncBaseOp {
   const struct io_uring_sqe& getSqe() const { return sqe_; }
 
  private:
-  struct io_uring_sqe sqe_;
+  struct io_uring_sqe sqe_;  // op中设置好的 sqe
   struct iovec iov_[1];
 };
 
@@ -112,8 +112,8 @@ class IoUring : public AsyncBase {
 
   size_t maxSubmit_;
   struct io_uring_params params_;
-  struct io_uring ioRing_;
-  SharedMutex submitMutex_;
+  struct io_uring ioRing_;  // iouring 实例
+  SharedMutex submitMutex_;  // 提交的时候加锁提交
 };
 
 using IoUringQueue = AsyncBaseQueue;

@@ -41,12 +41,14 @@ class IoUringOp;
  *
  * The op must remain allocated until it is completed or canceled.
  */
+ // 对操作的封装
 class AsyncBaseOp {
   friend class AsyncBase;
 
  public:
   using NotificationCallback = folly::Function<void(AsyncBaseOp*)>;
 
+  // 初始化函数中 设置回调函数
   explicit AsyncBaseOp(NotificationCallback cb = NotificationCallback());
   AsyncBaseOp(const AsyncBaseOp&) = delete;
   AsyncBaseOp& operator=(const AsyncBaseOp&) = delete;
@@ -61,7 +63,7 @@ class AsyncBaseOp {
   };
 
   /**
-   * Initiate a read request.
+   * Initiate a read request 初始化读请求
    */
   virtual void pread(int fd, void* buf, size_t size, off_t start) = 0;
   void pread(int fd, Range<unsigned char*> range, off_t start) {
@@ -74,7 +76,7 @@ class AsyncBaseOp {
   }
 
   /**
-   * Initiate a write request.
+   * Initiate a write request. 初始化写请求
    */
   virtual void pwrite(int fd, const void* buf, size_t size, off_t start) = 0;
   void pwrite(int fd, Range<const unsigned char*> range, off_t start) {
@@ -86,7 +88,7 @@ class AsyncBaseOp {
     pwrite(fd, buf, size, start);
   }
 
-  // we support only these subclasses
+  // we support only these subclasses 这个设计有点难看
   virtual AsyncIOOp* getAsyncIOOp() = 0;
   virtual IoUringOp* getIoUringOp() = 0;
 
@@ -142,9 +144,9 @@ class AsyncBaseOp {
   void complete(ssize_t result);
   void cancel();
 
-  NotificationCallback cb_;
-  State state_;
-  ssize_t result_;
+  NotificationCallback cb_;  // 回调函数
+  State state_; //  该op的状态
+  ssize_t result_;  // io 操作的结果（Returns >=0 on success, -errno on failure）,
   void* userData_{nullptr};
 };
 
@@ -265,11 +267,14 @@ class AsyncBase {
   std::atomic<bool> init_{false};
   std::mutex initMutex_;
 
-  std::atomic<size_t> pending_{0};
-  std::atomic<size_t> submitted_{0};
-  const size_t capacity_;
-  int pollFd_{-1};
-  std::vector<Op*> completed_;
+  std::atomic<size_t> pending_{0}; // the number of pending requests.
+  std::atomic<size_t> submitted_{0};  // the accumulative number of submitted I/O,
+  const size_t capacity_;  // the maximum number of requests that can be kept outstanding at any one time.
+
+  //  a file descriptor that can be passed to poll / epoll / select and will become
+  //  readable when any IOs on this AsyncBase have completed.
+  int pollFd_{-1}; // 通过eventfd 事件通知
+  std::vector<Op*> completed_;  // 完成的io
   std::vector<Op*> canceled_;
 };
 

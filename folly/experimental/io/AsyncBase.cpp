@@ -51,25 +51,29 @@ AsyncBaseOp::~AsyncBaseOp() {
   CHECK_NE(state_, State::PENDING);
 }
 
+// 状态转化 INITIALIZED --> PENDING
 void AsyncBaseOp::start() {
   DCHECK_EQ(state_, State::INITIALIZED);
   state_ = State::PENDING;
 }
 
+// 状态转化 PENDING --> INITIALIZED
 void AsyncBaseOp::unstart() {
   DCHECK_EQ(state_, State::PENDING);
   state_ = State::INITIALIZED;
 }
 
+// 状态转化 PENDING --> COMPLETED, 调用io 完成回调函数
 void AsyncBaseOp::complete(ssize_t result) {
   DCHECK_EQ(state_, State::PENDING);
   state_ = State::COMPLETED;
   result_ = result;
   if (cb_) {
-    cb_(this);
+    cb_(this);  // io 完成 调用回调函数
   }
 }
 
+// 状态转化 PENDING --> CANCELED
 void AsyncBaseOp::cancel() {
   DCHECK_EQ(state_, State::PENDING);
   state_ = State::CANCELED;
@@ -80,6 +84,7 @@ ssize_t AsyncBaseOp::result() const {
   return result_;
 }
 
+// 状态转化 UNINITIALIZED --> INITIALIZED
 void AsyncBaseOp::init() {
   CHECK_EQ(state_, State::UNINITIALIZED);
   state_ = State::INITIALIZED;
@@ -94,12 +99,8 @@ AsyncBase::AsyncBase(size_t capacity, PollMode pollMode) : capacity_(capacity) {
   CHECK_GT(capacity_, 0);
   completed_.reserve(capacity_);
   if (pollMode == POLLABLE) {
-#if __has_include(<sys/eventfd.h>)
     pollFd_ = eventfd(0, EFD_NONBLOCK);
     checkUnixError(pollFd_, "AsyncBase: eventfd creation failed");
-#else
-    // fallthrough to not-pollable, observed as: pollFd() == -1
-#endif
   }
 }
 
@@ -116,6 +117,7 @@ void AsyncBase::decrementPending(size_t n) {
   DCHECK_GE(p, 1);
 }
 
+// 提交一个请求
 void AsyncBase::submit(Op* op) {
   CHECK_EQ(op->state(), Op::State::INITIALIZED);
   initializeContext(); // on demand
@@ -141,6 +143,7 @@ void AsyncBase::submit(Op* op) {
   DCHECK_EQ(rc, 1);
 }
 
+// 提交一批请求
 int AsyncBase::submit(Range<Op**> ops) {
   for (auto& op : ops) {
     CHECK_EQ(op->state(), Op::State::INITIALIZED);
@@ -163,7 +166,7 @@ int AsyncBase::submit(Range<Op**> ops) {
   }
   // Any ops that did not get submitted go back to INITIALIZED state
   // and are removed from pending count.
-  for (size_t i = rc; i < ops.size(); i++) {
+  for (size_t i = rc; i < ops.size(); i++) {  //剩余没有提交的回滚掉
     ops[i]->unstart();
     decrementPending(1);
   }
@@ -173,20 +176,22 @@ int AsyncBase::submit(Range<Op**> ops) {
   return rc;
 }
 
+// 等待一批io 完成
 Range<AsyncBase::Op**> AsyncBase::wait(size_t minRequests) {
   CHECK(isInit());
   CHECK_EQ(pollFd_, -1) << "wait() only allowed on non-pollable object";
   auto p = pending_.load(std::memory_order_acquire);
   CHECK_LE(minRequests, p);
-  return doWait(WaitType::COMPLETE, minRequests, p, completed_);
+  return doWait(WaitType::COMPLETE, minRequests, p, completed_);  // 等待一批完成的io
 }
 
 Range<AsyncBase::Op**> AsyncBase::cancel() {
   CHECK(isInit());
   auto p = pending_.load(std::memory_order_acquire);
-  return doWait(WaitType::CANCEL, p, p, canceled_);
+  return doWait(WaitType::CANCEL, p, p, canceled_);  // 取消一批 io
 }
 
+// pollFd_通知有事件来到，则处理一批完成的io（调用回调等）
 Range<AsyncBase::Op**> AsyncBase::pollCompleted() {
   CHECK(isInit());
   CHECK_NE(pollFd_, -1) << "pollCompleted() only allowed on pollable object";
@@ -203,10 +208,10 @@ Range<AsyncBase::Op**> AsyncBase::pollCompleted() {
   checkUnixError(rc, "AsyncBase: read from event fd failed");
   DCHECK_EQ(rc, 8);
 
-  DCHECK_GT(numEvents, 0);
+  DCHECK_GT(numEvents, 0);  //说明有事件io完成
 
   // Don't reap more than pending_, as we've just reset the counter to 0.
-  return doWait(WaitType::COMPLETE, 0, pending_.load(), completed_);
+  return doWait(WaitType::COMPLETE, 0, pending_.load(), completed_);  // 等待一批完成的io
 }
 
 AsyncBaseQueue::AsyncBaseQueue(AsyncBase* asyncBase) : asyncBase_(asyncBase) {}

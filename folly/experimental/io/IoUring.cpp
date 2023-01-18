@@ -130,10 +130,11 @@ void IoUringOp::pread(int fd, void* buf, size_t size, off_t start) {
   io_uring_sqe_set_data(&sqe_, this);
 }
 
+// 将请求添加到SQ中
 void IoUringOp::preadv(int fd, const iovec* iov, int iovcnt, off_t start) {
-  init();
+  init(); // 状态转化 UNINITIALIZED --> INITIALIZED
   io_uring_prep_readv(&sqe_, fd, iov, iovcnt, start);
-  io_uring_sqe_set_data(&sqe_, this);
+  io_uring_sqe_set_data(&sqe_, this); // this 设置为user_data
 }
 
 void IoUringOp::pread(
@@ -143,6 +144,7 @@ void IoUringOp::pread(
   io_uring_sqe_set_data(&sqe_, this);
 }
 
+// 将请求添加到SQ中
 void IoUringOp::pwrite(int fd, const void* buf, size_t size, off_t start) {
   init();
   iov_[0].iov_base = const_cast<void*>(buf);
@@ -233,6 +235,7 @@ int IoUring::unregister_buffers() {
   return io_uring_unregister_buffers(&ioRing_);
 }
 
+// 初始化 io_uring sq 和cq 队列，注册evnetfd
 void IoUring::initializeContext() {
   if (!init_.load(std::memory_order_acquire)) {
     std::lock_guard<std::mutex> lock(initMutex_);
@@ -249,6 +252,7 @@ void IoUring::initializeContext() {
   }
 }
 
+// submit 一个请求
 int IoUring::submitOne(AsyncBase::Op* op) {
   // -1 return here will trigger throw if op isn't an IoUringOp
   IoUringOp* iop = op->getIoUringOp();
@@ -257,7 +261,7 @@ int IoUring::submitOne(AsyncBase::Op* op) {
     return -1;
   }
 
-  SharedMutex::WriteHolder lk(submitMutex_);
+  SharedMutex::WriteHolder lk(submitMutex_);  // 加锁， 获取seq， 赋值sqe, 提交sqe
   auto* sqe = io_uring_get_sqe(&ioRing_);
   if (!sqe) {
     return -1;
@@ -268,10 +272,11 @@ int IoUring::submitOne(AsyncBase::Op* op) {
   return io_uring_submit(&ioRing_);
 }
 
+// batch 提交到 io_uring中
 int IoUring::submitRange(Range<AsyncBase::Op**> ops) {
   size_t num = 0;
   int total = 0;
-  SharedMutex::WriteHolder lk(submitMutex_);
+  SharedMutex::WriteHolder lk(submitMutex_);  // 加锁， 获取seq， 赋值sqe, 提交sqe
   for (size_t i = 0; i < ops.size(); i++) {
     IoUringOp* iop = ops[i]->getIoUringOp();
     if (!iop) {
@@ -285,7 +290,7 @@ int IoUring::submitRange(Range<AsyncBase::Op**> ops) {
 
     *sqe = iop->getSqe();
     ++num;
-    if (num % maxSubmit_ == 0 || (i + 1 == ops.size())) {
+    if (num % maxSubmit_ == 0 || (i + 1 == ops.size())) { // batch 提交
       auto ret = io_uring_submit(&ioRing_);
       if (ret <= 0) {
         return total;
@@ -298,6 +303,7 @@ int IoUring::submitRange(Range<AsyncBase::Op**> ops) {
   return total ? total : -1;
 }
 
+// 等待一批io 完成
 Range<AsyncBase::Op**> IoUring::doWait(
     WaitType type,
     size_t minRequests,
@@ -308,25 +314,25 @@ Range<AsyncBase::Op**> IoUring::doWait(
   size_t count = 0;
   while (count < maxRequests) {
     struct io_uring_cqe* cqe = nullptr;
-    if (!io_uring_peek_cqe(&ioRing_, &cqe) && cqe) {
+    if (!io_uring_peek_cqe(&ioRing_, &cqe) && cqe) { //  获取一个（或等待） 完成的cqe, 并且返回 当前完成的事件数量， 获取cqe 成功
       count++;
       Op* op = reinterpret_cast<Op*>(io_uring_cqe_get_data(cqe));
       CHECK(op);
       auto res = cqe->res;
-      io_uring_cqe_seen(&ioRing_, cqe);
+      io_uring_cqe_seen(&ioRing_, cqe);// app消费者， 将cq head + nr. 必须保证在 被app 处理之后，在调用该函数
       decrementPending();
       switch (type) {
         case WaitType::COMPLETE:
-          op->complete(res);
+          op->complete(res);  // 回调complete的回调函数
           break;
         case WaitType::CANCEL:
-          op->cancel();
+          op->cancel();  // 取消一个op
           break;
       }
       result.push_back(op);
     } else {
-      if (count < minRequests) {
-        io_uring_wait_cqe(&ioRing_, &cqe);
+      if (count < minRequests) {  // 少于min, 则继续等待
+        io_uring_wait_cqe(&ioRing_, &cqe);  // 获取或者等待一个io 完成
       } else {
         break;
       }
