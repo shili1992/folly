@@ -702,6 +702,7 @@ bool IoUringBackend::FdRegistry::free(IoUringFdRegistrationRecord* record) {
   return false;
 }
 
+// 获取没有被使用sqe
 FOLLY_ALWAYS_INLINE struct io_uring_sqe* IoUringBackend::getUntrackedSqe() {
   struct io_uring_sqe* ret = ::io_uring_get_sqe(&ioRing_);
   // if running with SQ poll enabled
@@ -710,7 +711,7 @@ FOLLY_ALWAYS_INLINE struct io_uring_sqe* IoUringBackend::getUntrackedSqe() {
   while (!ret) {
     if (options_.flags & Options::Flags::POLL_SQ) {
       asm_volatile_pause();
-      ret = ::io_uring_get_sqe(&ioRing_);
+      ret = ::io_uring_get_sqe(&ioRing_); // 从 sq ring中获取一个sqe，   返回NULL（已经满了）
     } else {
       submitEager();
       ret = ::io_uring_get_sqe(&ioRing_);
@@ -722,11 +723,13 @@ FOLLY_ALWAYS_INLINE struct io_uring_sqe* IoUringBackend::getUntrackedSqe() {
   return ret;
 }
 
+// 获取没有被使用sqe
 FOLLY_ALWAYS_INLINE struct io_uring_sqe* IoUringBackend::getSqe() {
   ++numInsertedEvents_;
   return getUntrackedSqe();
 }
 
+// 准备数据， 设置sqe
 void IoSqeBase::internalSubmit(struct io_uring_sqe* sqe) noexcept {
   if (inFlight_) {
     LOG(ERROR) << "cannot resubmit an IoSqe. type="
@@ -734,18 +737,19 @@ void IoSqeBase::internalSubmit(struct io_uring_sqe* sqe) noexcept {
     return;
   }
   inFlight_ = true;
-  processSubmit(sqe);
-  ::io_uring_sqe_set_data(sqe, this);
+  processSubmit(sqe);  // 调用prepRead, prepWrite 设置 sqe。 如果是默认iosqe， 则设置为pollio seq(prepPollAdd监听fd上事件)
+  ::io_uring_sqe_set_data(sqe, this);  // 添加到ring
 }
 
+// 调用回调函数 backendCb_
 void IoSqeBase::internalCallback(int res, uint32_t flags) noexcept {
   if (!(flags & IORING_CQE_F_MORE)) {
-    inFlight_ = false;
+    inFlight_ = false;  // 停止inflight
   }
   if (cancelled_) {
     callbackCancelled(res, flags);
   } else {
-    callback(res, flags);
+    callback(res, flags);  // 调用回调函数 backendCb_
   }
 }
 
@@ -764,6 +768,7 @@ void IoUringBackend::processPollIoSqe(
   backend->processPollIo(ioSqe, res, flags);
 }
 
+// 设置 processTimers_ 为 true
 void IoUringBackend::processTimerIoSqe(
     IoUringBackend* backend,
     IoSqe* /*sqe*/,
@@ -785,7 +790,7 @@ IoUringBackend::IoUringBackend(Options options)
       numEntries_(options.capacity),
       fdRegistry_(ioRing_, options.registeredFds) {
   // create the timer fd
-  timerFd_ = ::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+  timerFd_ = ::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC); // 用来创建一个定时器描述符timerfd
   if (timerFd_ < 0) {
     throw std::runtime_error("timerfd_create error");
   }
@@ -794,7 +799,7 @@ IoUringBackend::IoUringBackend(Options options)
   ::memset(&params_, 0, sizeof(params_));
 
   params_.flags |= IORING_SETUP_CQSIZE;
-  params_.cq_entries = options.capacity;
+  params_.cq_entries = options.capacity;  // 设置cq大小
 
 #if FOLLY_IO_URING_UP_TO_DATE
   if (options_.taskRunCoop) {
@@ -811,7 +816,7 @@ IoUringBackend::IoUringBackend(Options options)
 
   // poll SQ options
   if (options.flags & Options::Flags::POLL_SQ) {
-    params_.flags |= IORING_SETUP_SQPOLL;
+    params_.flags |= IORING_SETUP_SQPOLL;   // POLL_SQ  则设置 POLL_SQ
     params_.sq_thread_idle = options.sqIdle.count();
   }
 
@@ -857,7 +862,7 @@ IoUringBackend::IoUringBackend(Options options)
       options_.sqGroupNumThreads,
       func,
       params_,
-      options.sqCpus);
+      options.sqCpus/*cpu 结合*/);
 
   if (!options_.sqGroupName.empty()) {
     LOG(INFO) << "Adding to SQ poll group \"" << options_.sqGroupName
@@ -984,12 +989,14 @@ bool IoUringBackend::isAvailable() {
   return sAvailable;
 }
 
+// 添加timerFd_  可读事件监控，但有可读事件时， 通过 io_uring_wait_cqe等操作进行读取
+//  并调用回调函数IoUringBackend::processTimerIoSqe(设置 processTimers_ 为 true)
 bool IoUringBackend::addTimerFd() {
   submitOutstanding();
   auto* entry = getSqe();
-  timerEntry_->prepPollAdd(entry, timerFd_, POLLIN);
+  timerEntry_->prepPollAdd(entry, timerFd_, POLLIN);   // 构造 fd, POLLIN 的 sqe
   ++numInternalEvents_;
-  return (1 == submitOne());
+  return (1 == submitOne());  // 提交事件
 }
 
 bool IoUringBackend::addSignalFds() {
@@ -1000,6 +1007,7 @@ bool IoUringBackend::addSignalFds() {
   return (1 == submitOne());
 }
 
+// 指定新的超时时间，使用当前最短的超时时间作为新的时间
 void IoUringBackend::scheduleTimeout() {
   if (!timerChanged_) {
     return;
@@ -1008,12 +1016,13 @@ void IoUringBackend::scheduleTimeout() {
   // reset
   timerChanged_ = false;
   if (!timers_.empty()) {
+    // 最早的 timer event
     auto delta = std::chrono::duration_cast<std::chrono::microseconds>(
         timers_.begin()->first - std::chrono::steady_clock::now());
     if (delta < std::chrono::microseconds(1000)) {
       delta = std::chrono::microseconds(1000);
     }
-    scheduleTimeout(delta);
+    scheduleTimeout(delta);  // 指定新的超时时间
   } else if (timerSet_) {
     scheduleTimeout(std::chrono::microseconds(0)); // disable
   }
@@ -1023,6 +1032,7 @@ void IoUringBackend::scheduleTimeout() {
   // we process a poll callback
 }
 
+// 指定新的超时时间
 void IoUringBackend::scheduleTimeout(const std::chrono::microseconds& us) {
   struct itimerspec val;
   timerSet_ = us.count() != 0;
@@ -1033,7 +1043,7 @@ void IoUringBackend::scheduleTimeout(const std::chrono::microseconds& us) {
       std::chrono::duration_cast<std::chrono::nanoseconds>(us).count() %
       1000000000LL;
 
-  CHECK_EQ(::timerfd_settime(timerFd_, 0, &val, nullptr), 0);
+  CHECK_EQ(::timerfd_settime(timerFd_, 0, &val, nullptr), 0); // 指定新的超时时间
 }
 
 namespace {
@@ -1049,6 +1059,7 @@ void timerUserDataFreeFunction(void* v) {
 
 } // namespace
 
+// 添加一个 time 事件
 void IoUringBackend::addTimerEvent(
     Event& event, const struct timeval* timeout) {
   auto expire = getTimerExpireTime(*timeout);
@@ -1076,6 +1087,7 @@ void IoUringBackend::addTimerEvent(
   timerChanged_ |= td->iter == timers_.begin();
 }
 
+// 删除 timer event
 void IoUringBackend::removeTimerEvent(Event& event) {
   TimerUserData* td = (TimerUserData*)event.getUserData();
   DVLOG(6) << "removeTimerEvent this=" << this << " event=" << &event
@@ -1088,16 +1100,17 @@ void IoUringBackend::removeTimerEvent(Event& event) {
   delete td;
 }
 
+// timer就绪时的回调函数
 size_t IoUringBackend::processTimers() {
   DVLOG(3) << "IoUringBackend::processTimers " << timers_.size();
   size_t ret = 0;
   uint64_t data = 0;
   // this can fail with but it is OK since the fd
   // will still be readable
-  folly::readNoInt(timerFd_, &data, sizeof(data));
+  folly::readNoInt(timerFd_, &data, sizeof(data));  // 读取已经完成 timeer时间
 
   auto now = std::chrono::steady_clock::now();
-  while (true) {
+  while (true) {  // 处理所有过期的 事件， 调用回调函数（timeout错误）
     auto it = timers_.begin();
     if (it == timers_.end() || now < it->first) {
       break;
@@ -1110,10 +1123,10 @@ size_t IoUringBackend::processTimers() {
     td->iter = timers_.end();
     timers_.erase(it);
     auto* ev = e->getEvent();
-    ev->ev_res = EV_TIMEOUT;
+    ev->ev_res = EV_TIMEOUT;   // 超时事件触发
     event_ref_flags(ev).get() = EVLIST_INIT;
     // might change the lists
-    (*event_ref_callback(ev))((int)ev->ev_fd, ev->ev_res, event_ref_arg(ev));
+    (*event_ref_callback(ev))((int)ev->ev_fd, ev->ev_res, event_ref_arg(ev)); //调用用户设置的回调函数，触发超时事件
     ++ret;
   }
 
@@ -1236,12 +1249,14 @@ void IoUringBackend::processPollIo(
 
     ioSqe->res_ = res;
     ioSqe->cqeFlags_ = flags;
+
     activeEvents_.push_back(*ioSqe);
   } else {
     releaseIoSqe(ioSqe);
   }
 }
 
+// 调用 active event 对应的回调函数(调用了调用用户注册的回调函数)
 size_t IoUringBackend::processActiveEvents() {
   size_t ret = 0;
   IoSqe* ioSqe;
@@ -1279,7 +1294,7 @@ size_t IoUringBackend::processActiveEvents() {
       }
       ioSqe->useCount_--;
     } else {
-      ioSqe->processActive();
+      ioSqe->processActive();  // 当io active后的回调函数， 回调函数中 调用用户注册的回调函数
     }
     if (release) {
       releaseIoSqe(ioSqe);
@@ -1308,6 +1323,7 @@ size_t IoUringBackend::loopPoll() {
   return ret;
 }
 
+// 只能在一个线程中运行
 void IoUringBackend::dCheckSubmitTid() {
   if (!kIsDebug) {
     // lets only check this in DEBUG
@@ -1358,8 +1374,9 @@ void IoUringBackend::initSubmissionLinked() {
   }
 }
 
+// 这个只会调用一次
 void IoUringBackend::delayedInit() {
-  dCheckSubmitTid();
+  dCheckSubmitTid();   // 只能在一个线程中运行
 
   if (FOLLY_LIKELY(!needsDelayedInit_)) {
     return;
@@ -1395,6 +1412,7 @@ void IoUringBackend::delayedInit() {
   }
 }
 
+// 等待事件完成， 当io 完成时 将所有的就绪时间， 放入到active event中， 并回调对应的事件的回调函数
 int IoUringBackend::eb_event_base_loop(int flags) {
   delayedInit();
 
@@ -1402,7 +1420,7 @@ int IoUringBackend::eb_event_base_loop(int flags) {
   auto waitForEvents = (flags & EVLOOP_NONBLOCK) ? WaitForEventsMode::DONT_WAIT
                                                  : WaitForEventsMode::WAIT;
   while (!done) {
-    scheduleTimeout();
+    scheduleTimeout();  // 指定新的超时时间，使用当前最短的超时时间作为新的时间
 
     // check if we need to break here
     if (loopBreak_) {
@@ -1410,7 +1428,7 @@ int IoUringBackend::eb_event_base_loop(int flags) {
       break;
     }
 
-    prepList(submitList_);
+    prepList(submitList_);  //  设置所有的数据sqe
 
     if (numInternalEvents_ == numInsertedEvents_ && timers_.empty() &&
         signals_.empty()) {
@@ -1424,7 +1442,7 @@ int IoUringBackend::eb_event_base_loop(int flags) {
     }
 
     // do not wait for events if EVLOOP_NONBLOCK is set
-    size_t processedEvents = getActiveEvents(waitForEvents);
+    size_t processedEvents = getActiveEvents(waitForEvents);    // 等待并将将完成的cqe 添加到activeEvents_
 
     if (eb_poll_loop_post_hook) {
       eb_poll_loop_post_hook(call_time, static_cast<int>(processedEvents));
@@ -1436,8 +1454,8 @@ int IoUringBackend::eb_event_base_loop(int flags) {
     // this means we've received a notification
     // and we need to add the timer fd back
     bool processTimersFlag = processTimers_;
-    if (processTimers_ && !loopBreak_) {
-      numProcessedTimers = processTimers();
+    if (processTimers_ && !loopBreak_) {  // 超时时间已经就绪， 处理超时时间
+      numProcessedTimers = processTimers();  // 处理超时事件， 并调用用户设置的回调函数（timeout错误）
       processTimers_ = false;
     }
 
@@ -1449,7 +1467,7 @@ int IoUringBackend::eb_event_base_loop(int flags) {
     }
 
     if (!activeEvents_.empty() && !loopBreak_) {
-      processActiveEvents();
+      processActiveEvents();  // 调用 active event 对应的回调函数(调用了调用用户注册的回调函数)
       if (flags & EVLOOP_ONCE) {
         done = true;
       }
@@ -1461,7 +1479,7 @@ int IoUringBackend::eb_event_base_loop(int flags) {
 
     if (!done &&
         (numProcessedTimers || numProcessedSignals || processedEvents) &&
-        (flags & EVLOOP_ONCE)) {
+        (flags & EVLOOP_ONCE)) {  // 如果EVLOOP_ONCE 则退出
       done = true;
     }
 
@@ -1469,7 +1487,7 @@ int IoUringBackend::eb_event_base_loop(int flags) {
             << processedEvents << " numProcessedSignals=" << numProcessedSignals
             << " numProcessedTimers=" << numProcessedTimers << " done=" << done;
 
-    if (processTimersFlag) {
+    if (processTimersFlag) { // 超时时间已经就绪， 处理超时时间后，重新添加超时事件
       addTimerFd();
     }
   }
@@ -1483,6 +1501,8 @@ int IoUringBackend::eb_event_base_loopbreak() {
   return 0;
 }
 
+// 将event设置到 poll iosqe中， 并且将iosqe添加到 submitList_
+// 后续将 作为 IORING_OP_POLL 添加到 iouring中
 int IoUringBackend::eb_event_add(Event& event, const struct timeval* timeout) {
   DVLOG(4) << "Add event " << &event;
   auto* ev = event.getEvent();
@@ -1491,7 +1511,7 @@ int IoUringBackend::eb_event_add(Event& event, const struct timeval* timeout) {
   // we do not support read/write timeouts
   if (timeout) {
     event_ref_flags(ev) |= EVLIST_TIMEOUT;
-    addTimerEvent(event, timeout);
+    addTimerEvent(event, timeout);   //如果 有超时时间，则添加timer 事件
     return 0;
   }
 
@@ -1501,9 +1521,10 @@ int IoUringBackend::eb_event_add(Event& event, const struct timeval* timeout) {
     return 0;
   }
 
+  // event 封装到 ioSqe中
   if ((ev->ev_events & (EV_READ | EV_WRITE)) &&
       !(event_ref_flags(ev) & (EVLIST_INSERTED | EVLIST_ACTIVE))) {
-    auto* ioSqe = allocIoSqe(event.getCallback());
+    auto* ioSqe = allocIoSqe(event.getCallback());  //如果IoSqe， 设置为pollio seq(prepPollAdd监听fd上事件)
     CHECK(ioSqe);
     ioSqe->event_ = &event;
 
@@ -1513,7 +1534,7 @@ int IoUringBackend::eb_event_add(Event& event, const struct timeval* timeout) {
       numInternalEvents_++;
     }
     event_ref_flags(ev) |= EVLIST_INSERTED;
-    event.setUserData(ioSqe);
+    event.setUserData(ioSqe);  // user_data 设置为 iosqe， 用户回调使用
   }
 
   return 0;
@@ -1605,33 +1626,39 @@ void IoUringBackend::submitNextLoop(IoSqeBase& ioSqe) noexcept {
   submitList_.push_back(ioSqe);
 }
 
+// submit immediate if POLL_SQ | POLL_SQ_IMMEDIATE_IO flags are set
 void IoUringBackend::submitImmediateIoSqe(IoSqeBase& ioSqe) {
+  // 如果指定了 sq polling, 这直接将seq 添加到  sq ring中， 不用enter 系统调用
   if (options_.flags &
       (Options::Flags::POLL_SQ | Options::Flags::POLL_SQ_IMMEDIATE_IO)) {
-    submitNow(ioSqe);
+    submitNow(ioSqe);  // 准备数据，并submit sqe
   } else {
-    submitList_.push_back(ioSqe);
+    submitList_.push_back(ioSqe);  // 添加到submitList_中
   }
 }
 
+// 提交一个数据请求
 int IoUringBackend::submitOne() {
   return submitBusyCheck(1, WaitForEventsMode::DONT_WAIT);
 }
 
+// 准备一个其你去数据，立即提交
 void IoUringBackend::submitNow(IoSqeBase& ioSqe) {
-  internalSubmit(ioSqe);
-  submitBusyCheck(waitingToSubmit_, WaitForEventsMode::DONT_WAIT);
+  internalSubmit(ioSqe); // 准备数据， 将用户传入的参数设置 ioSqe
+  submitBusyCheck(waitingToSubmit_, WaitForEventsMode::DONT_WAIT); // 使用 "io_uring_submit" 提交请求。
 }
 
+// 准备数据， 将用户传入的参数设置sqe
 void IoUringBackend::internalSubmit(IoSqeBase& ioSqe) noexcept {
   auto* sqe = getSqe();
   setSubmitting();
-  ioSqe.internalSubmit(sqe);
+  ioSqe.internalSubmit(sqe); // 准备数据， 将用户传入的参数设置sqe
   doneSubmitting();
 }
 
+// 准备一个其你去数据，当堆积满足一个batch 则提交
 void IoUringBackend::submitSoon(IoSqeBase& ioSqe) noexcept {
-  internalSubmit(ioSqe);
+  internalSubmit(ioSqe); // 准备数据， 将用户传入的参数设置sqe
   if (waitingToSubmit_ >= options_.maxSubmit) {
     submitBusyCheck(waitingToSubmit_, WaitForEventsMode::DONT_WAIT);
   }
@@ -1671,19 +1698,25 @@ int IoUringBackend::cancelOne(IoSqe* ioSqe) {
   return ret;
 }
 
+// 关键函数
+// 根据waitForEvents（等待和非等待）方式将完成的cqe 添加到activeEvents_
+// WAIT 模式：如果启用了 POLL_CQ 选项，则使用忙等待方式等待完成。 否则使用阻塞方式等待。
+// 其他模式：非阻塞模式，使用非阻塞的方式进行提交请求
+// 然后调用就绪事件的回调函数（ 读写添加IoSqe 到activeEvents_，timer事件则设置 processTimers_ 为 true）
 size_t IoUringBackend::getActiveEvents(WaitForEventsMode waitForEvents) {
   struct io_uring_cqe* cqe;
 
   setGetActiveEvents();
   SCOPE_EXIT { doneGetActiveEvents(); };
 
+  // 等待至少一个io完成
   auto inner_do_wait = [&]() -> int {
     if (waitingToSubmit_) {
-      submitBusyCheck(waitingToSubmit_, WaitForEventsMode::WAIT);
+      submitBusyCheck(waitingToSubmit_, WaitForEventsMode::WAIT);  // 提交请求， 并且等待至少一个io完成
       int ret = ::io_uring_peek_cqe(&ioRing_, &cqe);
       return ret;
     } else {
-      int ret = ::io_uring_wait_cqe(&ioRing_, &cqe);
+      int ret = ::io_uring_wait_cqe(&ioRing_, &cqe);  // 获取或者等待一个io 完成
       return ret;
     }
   };
@@ -1720,13 +1753,15 @@ size_t IoUringBackend::getActiveEvents(WaitForEventsMode waitForEvents) {
   // we can be called from the submitList() method
   // or with non blocking flags
   do {
+    // wait模式， POLL CQ模式，则忙等待。 其他则阻塞等待至少一个io完成
     if (waitForEvents == WaitForEventsMode::WAIT) {
       // if polling the CQ, busy wait for one entry
+      // 开启了 CQ polling， 则忙等待， 直到存在 有io完成。
       if (options_.flags & Options::Flags::POLL_CQ) {
         if (waitingToSubmit_) {
-          submitBusyCheck(waitingToSubmit_, WaitForEventsMode::DONT_WAIT);
+          submitBusyCheck(waitingToSubmit_, WaitForEventsMode::DONT_WAIT);  // 使用 "io_uring_submit" 提交请求, 不阻塞
         }
-        do {
+        do {  //忙等待方式
           ret = ::io_uring_peek_cqe(&ioRing_, &cqe);
           asm_volatile_pause();
           // call the loop callback if installed
@@ -1737,11 +1772,11 @@ size_t IoUringBackend::getActiveEvents(WaitForEventsMode waitForEvents) {
           }
         } while (ret);
       } else {
-        ret = do_wait();
+        ret = do_wait();  // 阻塞等待至少一个io完成
       }
-    } else {
+    } else { // 非阻塞模式，使用 "io_uring_submit" 提交请求, 不阻塞
       if (waitingToSubmit_) {
-        ret = submitBusyCheck(waitingToSubmit_, WaitForEventsMode::DONT_WAIT);
+        ret = submitBusyCheck(waitingToSubmit_, WaitForEventsMode::DONT_WAIT); // 使用 "io_uring_submit" 提交请求, 不阻塞
       } else {
         ret = do_peek();
       }
@@ -1758,9 +1793,11 @@ size_t IoUringBackend::getActiveEvents(WaitForEventsMode waitForEvents) {
     return 0;
   }
 
+  //cq中存在完成的事件， 遍历 CQ, 处理 cqe, 调用io 完成的callback（ 读写添加IoSqe 到activeEvents_，timer事件则设置 processTimers_ 为 true）
   return internalProcessCqe(options_.maxGet, InternalProcessCqeMode::NORMAL);
 }
 
+// 遍历 CQ, 处理 cqe, 调用io 完成的callback， 添加IoSqe 到activeEvents_
 unsigned int IoUringBackend::internalProcessCqe(
     unsigned int maxGet, InternalProcessCqeMode mode) noexcept {
   struct io_uring_cqe* cqe;
@@ -1770,18 +1807,18 @@ unsigned int IoUringBackend::internalProcessCqe(
   do {
     unsigned int head;
     unsigned int loop_count = 0;
-    io_uring_for_each_cqe(&ioRing_, head, cqe) {
+    io_uring_for_each_cqe(&ioRing_, head, cqe) {  //直接遍历 cq
       loop_count++;
       if (cqe->flags & IORING_CQE_F_MORE) {
         count_more++;
       }
-      IoSqeBase* sqe = reinterpret_cast<IoSqeBase*>(cqe->user_data);
+      IoSqeBase* sqe = reinterpret_cast<IoSqeBase*>(cqe->user_data);  // user_data 是sqe
       if (cqe->user_data) {
         count++;
         if (FOLLY_UNLIKELY(mode == InternalProcessCqeMode::CANCEL_ALL)) {
           sqe->markCancelled();
         }
-        sqe->internalCallback(cqe->res, cqe->flags);
+        sqe->internalCallback(cqe->res, cqe->flags);  // 调用注册的回调函数-->processFileOpCB-->processFileOp-->添加IoSqe 到activeEvents_
       } else {
         // untracked, do not increment count
       }
@@ -1792,7 +1829,7 @@ unsigned int IoUringBackend::internalProcessCqe(
     if (!loop_count) {
       break;
     }
-    io_uring_cq_advance(&ioRing_, loop_count);
+    io_uring_cq_advance(&ioRing_, loop_count);  // 处理了一个cqe
     if (count >= maxGet) {
       break;
     }
@@ -1827,6 +1864,12 @@ int IoUringBackend::submitEager() {
   return res;
 }
 
+// 实现了对 io_uring 内核接口的提交
+// 如果需要等待事件完成，则会使用 "io_uring_submit_and_wait"函数提交请求，并阻塞等待请求的完成。
+// 如果不需要等待事件完成，则使用 "io_uring_submit" 提交请求。
+// 如果 "waitForEvents" 模式是 "WAIT"，并且 "options_.flags & Options::Flags::POLL_CQ" 为真，则该函数会进入忙等待状态，
+//   直到至少有一个完成请求队列元素 (cqe) 完成。
+// return: 如果提交失败，则函数会返回一个错误代码。否则，它将等待提交的请求的完成，并将完成的请求数返回。
 int IoUringBackend::submitBusyCheck(
     int num, WaitForEventsMode waitForEvents) noexcept {
   int i = 0;
@@ -1837,9 +1880,9 @@ int IoUringBackend::submitBusyCheck(
 
     if (waitForEvents == WaitForEventsMode::WAIT) {
       if (options_.flags & Options::Flags::POLL_CQ) {
-        res = ::io_uring_submit(&ioRing_);
+        res = ::io_uring_submit(&ioRing_);   //
       } else {
-        res = ::io_uring_submit_and_wait(&ioRing_, 1);
+        res = ::io_uring_submit_and_wait(&ioRing_, 1);  // 提交请求并且阻塞等待至少一个请求完成
         if (res >= 0) {
           // no more waiting
           waitForEvents = WaitForEventsMode::DONT_WAIT;
@@ -1886,12 +1929,13 @@ int IoUringBackend::submitBusyCheck(
 
     i += res;
 
+    // wait 模式，这里polling 等待至少一个cqe 完成
     // if polling the CQ, busy wait for one entry
     if (waitForEvents == WaitForEventsMode::WAIT &&
         options_.flags & Options::Flags::POLL_CQ && i == num) {
       struct io_uring_cqe* cqe = nullptr;
       while (!cqe) {
-        ::io_uring_peek_cqe(&ioRing_, &cqe);
+        ::io_uring_peek_cqe(&ioRing_, &cqe);  // 获取一个cqe,非阻塞
       }
     }
   }
@@ -1901,11 +1945,12 @@ int IoUringBackend::submitBusyCheck(
   return num;
 }
 
+// 设置所有的数据, 如果堆积了一批了则 提交
 size_t IoUringBackend::prepList(IoSqeBaseList& ioSqes) {
   int i = 0;
 
   while (!ioSqes.empty()) {
-    if (static_cast<size_t>(i) == options_.maxSubmit) {
+    if (static_cast<size_t>(i) == options_.maxSubmit) {  // 使用 "io_uring_submit" 提交请求。
       int num = submitBusyCheck(i, WaitForEventsMode::DONT_WAIT);
       CHECK_EQ(num, i);
       i = 0;
@@ -1914,24 +1959,26 @@ size_t IoUringBackend::prepList(IoSqeBaseList& ioSqes) {
     auto* entry = &ioSqes.front();
     ioSqes.pop_front();
     auto* sqe = getSqe();
-    entry->internalSubmit(sqe);
+    entry->internalSubmit(sqe); // 准备数据， 设置sqe
     i++;
   }
 
   return i;
 }
 
+// 设置read iosqe 并添加到队列中
 void IoUringBackend::queueRead(
     int fd, void* buf, unsigned int nbytes, off_t offset, FileOpCallback&& cb) {
   struct iovec iov {
     buf, nbytes
   };
   auto* ioSqe = new ReadIoSqe(this, fd, &iov, offset, std::move(cb));
-  ioSqe->backendCb_ = processFileOpCB;
+  ioSqe->backendCb_ = processFileOpCB;  // 当io 完成后会调用 该函数 (将 完成的io 的请求添加到activeEvents_中)
 
   submitImmediateIoSqe(*ioSqe);
 }
 
+// 设置write iosqe 并添加到队列中
 void IoUringBackend::queueWrite(
     int fd,
     const void* buf,
@@ -2031,6 +2078,7 @@ void IoUringBackend::queueRecvmsg(
   submitImmediateIoSqe(*ioSqe);
 }
 
+// 将 完成的io 的请求添加到activeEvents_中
 void IoUringBackend::processFileOp(IoSqe* sqe, int res) noexcept {
   auto* ioSqe = reinterpret_cast<FileOpIoSqe*>(sqe);
   // save the res

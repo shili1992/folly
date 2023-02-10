@@ -122,6 +122,7 @@ void IoUringOp::reset(NotificationCallback cb) {
 
 IoUringOp::~IoUringOp() {}
 
+// 构造 read请求，添加到SQ中
 void IoUringOp::pread(int fd, void* buf, size_t size, off_t start) {
   init();
   iov_[0].iov_base = buf;
@@ -137,6 +138,7 @@ void IoUringOp::preadv(int fd, const iovec* iov, int iovcnt, off_t start) {
   io_uring_sqe_set_data(&sqe_, this); // this 设置为user_data
 }
 
+// 利用 bug index
 void IoUringOp::pread(
     int fd, void* buf, size_t size, off_t start, int buf_index) {
   init();
@@ -245,7 +247,7 @@ void IoUring::initializeContext() {
       checkKernelError(rc, "IoUring: io_uring_queue_init_params failed");
       DCHECK_GT(ioRing_.ring_fd, 0);
       if (pollFd_ != -1) {
-        CHECK_ERR(io_uring_register_eventfd(&ioRing_, pollFd_));
+        CHECK_ERR(io_uring_register_eventfd(&ioRing_, pollFd_));  //在iouring中注册 pollfd
       }
       init_.store(true, std::memory_order_release);
     }

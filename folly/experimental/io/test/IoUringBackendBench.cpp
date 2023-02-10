@@ -231,14 +231,14 @@ class EventFD : public EventHandler, public folly::EventReadCallback {
       bool persist,
       EventBase* eventBase,
       EventFDRefillInfo* refillInfo)
-      : EventHandler(eventBase, NetworkSocket::fromFd(fd)),
+      : EventHandler(eventBase, NetworkSocket::fromFd(fd)),  // 设置了运行所在的 eventbase 和 fd
         total_(total),
         fd_(fd),
         persist_(persist),
         evb_(eventBase),
         refillInfo_(refillInfo) {
     if (persist_) {
-      registerHandler(folly::EventHandler::READ | folly::EventHandler::PERSIST);
+      registerHandler(folly::EventHandler::READ | folly::EventHandler::PERSIST); // 注册fd上events事件， 设置了回调函数
     } else {
       registerHandler(folly::EventHandler::READ);
     }

@@ -42,6 +42,7 @@
 
 #include <poll.h>
 #include <liburing.h>
+#include <list>
 
 
 namespace folly {
@@ -55,8 +56,8 @@ class IoUringBackend : public EventBaseBackendBase {
 
   struct Options {
     enum Flags {
-      POLL_SQ = 0x1,
-      POLL_CQ = 0x2,
+      POLL_SQ = 0x1,   // 提交不用等待，不会陷入内核
+      POLL_CQ = 0x2,   // 收割不陷入内核阻塞， 如果是wait,则忙等嗲
       POLL_SQ_IMMEDIATE_IO = 0x4, // do not enqueue I/O operations
     };
 
@@ -114,6 +115,7 @@ class IoUringBackend : public EventBaseBackendBase {
       return *this;
     }
 
+    // 只有 POLL_SQ 设置了， 才能绑定cpu
     // Set the CPU as preferred for submission queue poll thread.
     //
     // This only has effect if POLL_SQ flag is specified.
@@ -128,7 +130,7 @@ class IoUringBackend : public EventBaseBackendBase {
     // Set the preferred CPUs for submission queue poll thread(s).
     //
     // This only has effect if POLL_SQ flag is specified.
-    Options& setSQCpus(std::set<uint32_t> const& cpus) {
+    Options& setSQCpus(std::set<uint32_t> const& cpus) {  // 用于 sq thread 的 cpu 集合
       sqCpus.insert(cpus.begin(), cpus.end());
 
       return *this;
@@ -170,11 +172,11 @@ class IoUringBackend : public EventBaseBackendBase {
       return *this;
     }
 
-    size_t capacity{256};
+    size_t capacity{256};   // cq的大小
     size_t minCapacity{0};
-    size_t maxSubmit{128};
-    ssize_t sqeSize{-1};
-    size_t maxGet{256};
+    size_t maxSubmit{128};  // 一次最大提交数量
+    ssize_t sqeSize{-1};   // sq 大小
+    size_t maxGet{256};    // 一次最大get
     size_t registeredFds{0};
     bool registerRingFd{false};
     uint32_t flags{0};
@@ -468,13 +470,13 @@ class IoUringBackend : public EventBaseBackendBase {
     virtual void release() noexcept;
 
     IoUringBackend* backend_;
-    BackendCb* backendCb_{nullptr};
+    BackendCb* backendCb_{nullptr};  // 回调函数
     const bool poolAlloc_;
     const bool persist_;
     Event* event_{nullptr};
     IoUringFdRegistrationRecord* fdRecord_{nullptr};
     size_t useCount_{0};
-    int res_;
+    int res_;   // io 完成的结果 ret
     uint32_t cqeFlags_;
 
     FOLLY_ALWAYS_INLINE void resetEvent() {
@@ -529,7 +531,7 @@ class IoUringBackend : public EventBaseBackendBase {
       }
     }
 
-    virtual void processActive() {}
+    virtual void processActive() {}  // 当io active后的回调函数， 回调函数中 调用用户注册的回调函数
 
     struct EventCallbackData {
       EventCallback::Type type_{EventCallback::Type::TYPE_NONE};
@@ -622,11 +624,12 @@ class IoUringBackend : public EventBaseBackendBase {
 
     EventCallbackData cbData_;
 
+    //  监听 fds上 poll_mask 事件， 类似于  event_add
     void prepPollAdd(
         struct io_uring_sqe* sqe, int fd, uint32_t events) noexcept {
       CHECK(sqe);
       ::io_uring_prep_poll_add(sqe, fd, events);
-      ::io_uring_sqe_set_data(sqe, this);
+      ::io_uring_sqe_set_data(sqe, this);  // 设置user data
     }
 
     void prepRead(
@@ -724,10 +727,10 @@ class IoUringBackend : public EventBaseBackendBase {
     }
   };
 
-  using IoSqeBaseList = boost::intrusive::
-      list<IoSqeBase, boost::intrusive::constant_time_size<false>>;
-  using IoSqeList = boost::intrusive::
-      list<IoSqe, boost::intrusive::constant_time_size<false>>;
+//  using IoSqeBaseList = boost::intrusive::
+//      list<IoSqeBase, boost::intrusive::constant_time_size<false>>;
+  using IoSqeBaseList = std::list<IoSqeBase>;
+  using IoSqeList = std::list<IoSqe>;
 
   struct FileOpIoSqe : public IoSqe {
     FileOpIoSqe(IoUringBackend* backend, int fd, FileOpCallback&& cb)
@@ -735,11 +738,11 @@ class IoUringBackend : public EventBaseBackendBase {
 
     ~FileOpIoSqe() override = default;
 
-    void processActive() override { cb_(res_); }
+    void processActive() override { cb_(res_); }  // 当io active后的回调函数， 回调函数中 调用用户注册的回调函数
 
-    int fd_{-1};
+    int fd_{-1};   // 需要操作的fd
 
-    FileOpCallback cb_;
+    FileOpCallback cb_;  // 用户设置的回调函数
   };
 
   struct ReadWriteIoSqe : public FileOpIoSqe {
@@ -763,7 +766,7 @@ class IoUringBackend : public EventBaseBackendBase {
 
     ~ReadWriteIoSqe() override = default;
 
-    void processActive() override { cb_(res_); }
+    void processActive() override { cb_(res_); } // 当io active后的回调函数， 回调函数中 调用用户注册的回调函数
 
     static constexpr size_t kNumInlineIoVec = 4;
     folly::small_vector<struct iovec> iov_;
@@ -1010,10 +1013,10 @@ class IoUringBackend : public EventBaseBackendBase {
   bool usingDeferTaskrun_{false};
 
   // timer related
-  int timerFd_{-1};
+  int timerFd_{-1};  // 用于超时时间
   bool timerChanged_{false};
-  bool timerSet_{false};
-  std::multimap<std::chrono::steady_clock::time_point, Event*> timers_;
+  bool timerSet_{false};  // 是否设置 timerfd_settime
+  std::multimap<std::chrono::steady_clock::time_point, Event*> timers_;  //过期时间 到 time evnet的映射
 
   // signal related
   SocketPair signalFds_;
@@ -1030,7 +1033,7 @@ class IoUringBackend : public EventBaseBackendBase {
   bool processTimers_{false};
   bool processSignals_{false};
   IoSqeList activeEvents_;
-  size_t waitingToSubmit_{0};
+  size_t waitingToSubmit_{0};  // 已经准备好数据，但是还未提交的sqe的数量
   size_t numInsertedEvents_{0};
   size_t numInternalEvents_{0};
 
@@ -1050,7 +1053,7 @@ class IoUringBackend : public EventBaseBackendBase {
   bool needsDelayedInit_{true};
 
   // stuff for ensuring we don't re-enter submit/getActiveEvents
-  folly::Optional<std::thread::id> submitTid_;
+  folly::Optional<std::thread::id> submitTid_; // 保证只有一个线程运行 submit/getActiveEvents
   int isSubmitting_{0};
   bool gettingEvents_{false};
   void dCheckSubmitTid();

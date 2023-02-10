@@ -129,7 +129,7 @@ void AsyncBase::submit(Op* op) {
     throw std::range_error("AsyncBase: too many pending requests");
   }
 
-  op->start();
+  op->start();  //状态改为pending
   int rc = submitOne(op);
 
   if (rc <= 0) {
@@ -191,7 +191,7 @@ Range<AsyncBase::Op**> AsyncBase::cancel() {
   return doWait(WaitType::CANCEL, p, p, canceled_);  // 取消一批 io
 }
 
-// pollFd_通知有事件来到，则处理一批完成的io（调用回调等）
+// pollFd_通知有事件来到，然后调用获取函数， 处理一批完成的io（调用回调等）
 Range<AsyncBase::Op**> AsyncBase::pollCompleted() {
   CHECK(isInit());
   CHECK_NE(pollFd_, -1) << "pollCompleted() only allowed on pollable object";

@@ -27,9 +27,7 @@ namespace folly {
 
 class IoUringBackend;
 
-struct IoSqeBase
-    : boost::intrusive::list_base_hook<
-          boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
+struct IoSqeBase {
   IoSqeBase() = default;
   // use raw addresses, so disallow copy/move
   IoSqeBase(IoSqeBase&&) = delete;
@@ -57,7 +55,7 @@ struct IoSqeBase
   void internalCallback(int res, uint32_t flags) noexcept;
   void internalUnmarkInflight() { inFlight_ = false; }
 
-  bool inFlight_ = false;
+  bool inFlight_ = false;  // 表示请求在 flight
   bool cancelled_ = false;
 };
 
@@ -98,8 +96,7 @@ class IoUringBufferProviderBase {
   virtual void destroy() noexcept = 0;
 };
 
-struct IoUringFdRegistrationRecord : public boost::intrusive::slist_base_hook<
-                                         boost::intrusive::cache_last<false>> {
+struct IoUringFdRegistrationRecord {
   int count_{0};
   int fd_{-1};
   int idx_{0};

@@ -213,7 +213,7 @@ class EventBaseEvent {
   EventBase* evb_{nullptr};
   void* userData_{nullptr};
   FreeFunction freeFn_{nullptr};
-  EventCallback cb_;
+  EventCallback cb_;   // 通过setCallback 设置的callback 和 event_中用户设置不一样
 };
 
 class EventBaseBackendBase {

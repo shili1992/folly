@@ -205,7 +205,7 @@ class SimpleAsyncIO : public EventHandler {
   size_t maxRequests_;
   Executor::KeepAlive<> completionExecutor_;
   std::unique_ptr<AsyncBase> asyncIO_;
-  Synchronized<std::queue<std::unique_ptr<AsyncBaseOp>>> opsFreeList_;
+  Synchronized<std::queue<std::unique_ptr<AsyncBaseOp>>> opsFreeList_;  // 用于减少内存分配， 维护一个op list
   std::unique_ptr<ScopedEventBaseThread> evb_;
   bool terminating_;
   Baton<> drainedBaton_;

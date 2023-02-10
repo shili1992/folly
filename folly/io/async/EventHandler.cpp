@@ -23,6 +23,7 @@
 
 namespace folly {
 
+// 设置了运行所在的 eventbase 和 fd
 EventHandler::EventHandler(EventBase* eventBase, NetworkSocket fd) {
   event_.eb_event_set(fd.data, 0, &EventHandler::libeventCallback, this);
   if (eventBase != nullptr) {
@@ -40,7 +41,7 @@ EventHandler::~EventHandler() {
   unregisterHandler();
 }
 
-// 注册 events 回调函数
+// 注册fd上events事件， 设置了回调函数
 bool EventHandler::registerImpl(uint16_t events, bool internal) {
   assert(event_.eb_ev_base() != nullptr);
 

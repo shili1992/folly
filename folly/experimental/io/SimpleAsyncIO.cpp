@@ -32,7 +32,7 @@ using io_uring_type = IoUring;
 
 template <typename AsyncIOType>
 void SimpleAsyncIO::init() {
-  asyncIO_ = std::make_unique<AsyncIOType>(maxRequests_, AsyncBase::POLLABLE);
+  asyncIO_ = std::make_unique<AsyncIOType>(maxRequests_, AsyncBase::POLLABLE);  // 使用 poll模式
   opsFreeList_.withWLock([this](auto& freeList) {
     for (size_t i = 0; i < maxRequests_; ++i) {
       freeList.push(std::make_unique<typename AsyncIOType::Op>());
@@ -72,6 +72,7 @@ SimpleAsyncIO::SimpleAsyncIO(Config cfg)
       break;
   }
 
+  // 使用 evenbase 对 pollfd进行事件驱动， 当io 完成时 调用 SimpleAsyncIO::handlerReady 处理完成的io
   if (cfg.evb_) {
     initHandler(cfg.evb_, NetworkSocket::fromFd(asyncIO_->pollFd()));
   } else {
@@ -79,7 +80,7 @@ SimpleAsyncIO::SimpleAsyncIO(Config cfg)
     initHandler(
         evb_->getEventBase(), NetworkSocket::fromFd(asyncIO_->pollFd()));
   }
-  registerHandler(EventHandler::READ | EventHandler::PERSIST);
+  registerHandler(EventHandler::READ | EventHandler::PERSIST); // 注册pollfd 可读的handler
 }
 
 SimpleAsyncIO::~SimpleAsyncIO() {
@@ -97,6 +98,7 @@ SimpleAsyncIO::~SimpleAsyncIO() {
   unregisterHandler();
 }
 
+// 当pollfd可读时调用该函数
 void SimpleAsyncIO::handlerReady(uint16_t events) noexcept {
   if (events & EventHandler::READ) {
     // All the work (including putting op back on free list) happens in the
@@ -108,6 +110,7 @@ void SimpleAsyncIO::handlerReady(uint16_t events) noexcept {
   }
 }
 
+// 从op list中获取一个op
 std::unique_ptr<AsyncBaseOp> SimpleAsyncIO::getOp() {
   std::unique_ptr<AsyncBaseOp> rc;
   opsFreeList_.withWLock(
@@ -132,9 +135,10 @@ void SimpleAsyncIO::putOp(std::unique_ptr<AsyncBaseOp>&& op) {
       });
 }
 
+// 设置 request 并提交
 void SimpleAsyncIO::submitOp(
     Function<void(AsyncBaseOp*)> preparer, SimpleAsyncIOCompletor completor) {
-  std::unique_ptr<AsyncBaseOp> opHolder = getOp();
+  std::unique_ptr<AsyncBaseOp> opHolder = getOp(); // 从op list中获取一个op
   if (!opHolder) {
     completor(-EBUSY);
     return;
@@ -145,21 +149,22 @@ void SimpleAsyncIO::submitOp(
   // it.
   AsyncBaseOp* op = opHolder.get();
 
-  preparer(op);
+  preparer(op);  // 调用op 初始化函数
 
+  // 设置io 完成的回调函数
   op->setNotificationCallback(
       [this, completor{std::move(completor)}, opHolder{std::move(opHolder)}](
           AsyncBaseOp* op_) mutable {
         CHECK(op_ == opHolder.get());
-        int rc = op_->result();
+        int rc = op_->result(); // 检查op 结果
 
         completionExecutor_->add(
-            [rc, completor{std::move(completor)}]() mutable { completor(rc); });
+            [rc, completor{std::move(completor)}]() mutable { completor(rc); });  // 将完成的io任务放入到executor 执行 回调函数
 
         // NB: the moment we put the opHolder, the destructor might delete the
         // current instance. So do not access any member variables after this
         // point! Also, obviously, do not access op_.
-        putOp(std::move(opHolder));
+        putOp(std::move(opHolder));  // 放回到free list 中
       });
   asyncIO_->submit(op);
 }
@@ -172,7 +177,7 @@ void SimpleAsyncIO::pread(
     SimpleAsyncIOCompletor completor) {
   submitOp(
       [=](AsyncBaseOp* op) { op->pread(fd, buf, size, start); },
-      std::move(completor));
+      std::move(completor)); // 设置 request 并提交
 }
 
 void SimpleAsyncIO::pwrite(

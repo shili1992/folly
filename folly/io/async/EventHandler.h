@@ -83,6 +83,7 @@ class EventHandler {
   virtual void handlerReady(uint16_t events) noexcept = 0;
 
   /**
+   *  注册fd上events事件， 设置了回调函数
    * Register the handler.
    *
    * If the handler is already registered, the registration will be updated
