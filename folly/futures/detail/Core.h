@@ -528,7 +528,7 @@ class CoreBase {
   void derefCallback() noexcept;
 
   union {
-    Callback callback_;
+    Callback callback_;  // 这个future. then 的func 形成的回调函数
   };
   std::atomic<State> state_;
   std::atomic<unsigned char> attached_;
@@ -550,7 +550,7 @@ class ResultHolder {
   // making sure that it's in the same cache line as the vtable pointer and the
   // callback_ (assuming it's small enough).
   union {
-    Try<T> result_;
+    Try<T> result_;  // 可能来自于 上一个future 计算的结果， 也可能 set_value
   };
 };
 
@@ -634,7 +634,7 @@ class Core final : private ResultHolder<T>, public CoreBase {
       if (ew != nullptr) {
         core.result_ = Try<T>{std::move(*ew)};
       }
-      func(std::move(ka), std::move(core.result_));
+      func(std::move(ka), std::move(core.result_)); // core.result_ 来自于 上一个future 计算的结果 或者 set_value的值
     };
 
     setCallback_(std::move(callback), std::move(context), allowInline);

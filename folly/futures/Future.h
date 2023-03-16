@@ -375,7 +375,7 @@ class FutureBase {
 
   // shared core state object
   // usually you should use `getCore()` instead of directly accessing `core_`.
-  Core* core_;
+  Core* core_;  // core中包含了调用链中下一个调用的回调函数， 和 其中设置的回调函数一起使用。
 
   explicit FutureBase(Core* obj) : core_(obj) {}
 

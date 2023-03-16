@@ -129,6 +129,7 @@ class CoreCallbackState {
     }
   }
 
+  // 调用对应 function, 传入的是参数
   template <typename... Args>
   auto invoke(Args&&... args) noexcept(
       noexcept(std::declval<F&&>()(std::declval<Args&&>()...))) {
@@ -248,6 +249,7 @@ Try<T> const&& FutureBase<T>::result() const&& {
   return std::move(getCoreTryChecked());
 }
 
+// future 只要设置了result 没有 设置callback 也是 ready
 template <class T>
 bool FutureBase<T>::isReady() const {
   return getCore().hasResult();
@@ -363,22 +365,26 @@ FutureBase<T>::thenImplementation(
   auto f = Future<B>(sf.core_);
   sf.core_ = nullptr;
 
+  // 设置 future.core的callback
   this->setCallback_(
       [state = futures::detail::makeCoreCallbackState(
            std::move(p), static_cast<F&&>(func))](
           Executor::KeepAlive<>&& ka, Try<T>&& t) mutable {
+          // p 是下一个 future 节点
+
         if (!R::Arg::isTry() && t.hasException()) {
           state.setException(std::move(ka), std::move(t.exception()));
         } else {
+          // 设置下一个future的result
           auto propagateKA = ka.copy();
           state.setTry(std::move(propagateKA), makeTryWith([&] {
                          return detail_msvc_15_7_workaround::invoke(
-                             R{}, state, std::move(ka), std::move(t));
+                             R{}, state, std::move(ka), std::move(t)); // 运行了 func(ka.copy()， t) --> user_func(t)
                        }));
         }
       },
       allowInline);
-  return f;
+  return f;    // 返回调用链中下一个future
 }
 
 // Pass through a simple future as it needs no deferral adaptation
@@ -416,6 +422,7 @@ FutureBase<T>::thenImplementation(
   auto f = Future<B>(sf.core_);
   sf.core_ = nullptr;
 
+  // 设置 future.core的callback
   this->setCallback_(
       [state = futures::detail::makeCoreCallbackState(
            std::move(p), static_cast<F&&>(func))](
@@ -426,7 +433,7 @@ FutureBase<T>::thenImplementation(
           // Ensure that if function returned a SemiFuture we correctly chain
           // potential deferral.
           auto tf2 = detail_msvc_15_7_workaround::tryInvoke(
-              R{}, state, ka.copy(), std::move(t));
+              R{}, state, ka.copy(), std::move(t));  //运行了 func(ka.copy()， t) --> user_func(t)
           if (tf2.hasException()) {
             state.setException(std::move(ka), std::move(tf2.exception()));
           } else {
@@ -439,7 +446,7 @@ FutureBase<T>::thenImplementation(
       },
       allowInline);
 
-  return f;
+  return f;  // 返回调用链中下一个future
 }
 
 class WaitExecutor final : public folly::Executor {

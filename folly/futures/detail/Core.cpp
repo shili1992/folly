@@ -275,6 +275,7 @@ void InterruptHandler::release() {
   }
 }
 
+// return True if state is OnlyResult or Done.
 bool CoreBase::hasResult() const noexcept {
   constexpr auto allowed = State::OnlyResult | State::Done;
   auto core = this;
@@ -439,7 +440,7 @@ void CoreBase::setCallback_(
     futures::detail::InlineContinuation allowInline) {
   DCHECK(!hasCallback());
 
-  ::new (&callback_) Callback(std::move(callback));
+  ::new (&callback_) Callback(std::move(callback));  // 设置callback到 callback_
   ::new (&context_) Context(std::move(context));
 
   auto state = state_.load(std::memory_order_acquire);
@@ -447,7 +448,7 @@ void CoreBase::setCallback_(
       ? State::OnlyCallbackAllowInline
       : State::OnlyCallback;
 
-  if (state == State::Start) {
+  if (state == State::Start) {  // 还没有设置 result， 则状态为OnlyCallback
     if (folly::atomic_compare_exchange_strong_explicit(
             &state_,
             &state,
@@ -459,7 +460,7 @@ void CoreBase::setCallback_(
     assume(state == State::OnlyResult || state == State::Proxy);
   }
 
-  if (state == State::OnlyResult) {
+  if (state == State::OnlyResult) {  //已经设置过 result，则 运行设置的回调函数
     state_.store(State::Done, std::memory_order_relaxed);
     doCallback(Executor::KeepAlive<>{}, state);
     return;
@@ -477,7 +478,7 @@ void CoreBase::setResult_(Executor::KeepAlive<>&& completingKA) {
 
   auto state = state_.load(std::memory_order_acquire);
   switch (state) {
-    case State::Start:
+    case State::Start:  // Start --> OnlyResult
       if (folly::atomic_compare_exchange_strong_explicit(
               &state_,
               &state,
@@ -492,7 +493,7 @@ void CoreBase::setResult_(Executor::KeepAlive<>&& completingKA) {
       FOLLY_FALLTHROUGH;
 
     case State::OnlyCallback:
-    case State::OnlyCallbackAllowInline:
+    case State::OnlyCallbackAllowInline:  // 如果已经设置了callback, 则调用回调函数
       state_.store(State::Done, std::memory_order_relaxed);
       doCallback(std::move(completingKA), state);
       return;
@@ -559,9 +560,9 @@ void CoreBase::doCallback(
     } else {
       // If executors match call inline
       auto currentKeepAlive = std::move(currentExecutor).stealKeepAlive();
-      if (addCompletingKA.get() == currentKeepAlive.get()) {
-        keepAliveFunc(std::move(currentKeepAlive));
-      } else {
+      if (addCompletingKA.get() == currentKeepAlive.get()) {  // 同一个executor 则 inline执行
+        keepAliveFunc(std::move(currentKeepAlive));  // 直接 调用回调函数
+      } else { //添加到线程池 重新原型
         std::move(currentKeepAlive).add(std::move(keepAliveFunc));
       }
     }
@@ -573,15 +574,6 @@ void CoreBase::doCallback(
       completingKA = Executor::KeepAlive<>{};
     }
     exception_wrapper ew;
-    // We need to reset `callback_` after it was executed (which can happen
-    // through the executor or, if `Executor::add` throws, below). The
-    // executor might discard the function without executing it (now or
-    // later), in which case `callback_` also needs to be reset.
-    // The `Core` has to be kept alive throughout that time, too. Hence we
-    // increment `attached_` and `callbackReferences_` by two, and construct
-    // exactly two `CoreAndCallbackReference` objects, which call
-    // `derefCallback` and `detachOne` in their destructor. One will guard
-    // this scope, the other one will guard the lambda passed to the executor.
     attached_.fetch_add(2, std::memory_order_relaxed);
     callbackReferences_.fetch_add(2, std::memory_order_relaxed);
     CoreAndCallbackReference guard_local_scope(this);
@@ -595,14 +587,14 @@ void CoreBase::doCallback(
             auto cr = std::move(core_ref);
             CoreBase* const core = cr.getCore();
             RequestContextScopeGuard rctx(std::move(core->context_));
-            core->callback_(*core, std::move(ka), nullptr);
+            core->callback_(*core, std::move(ka), nullptr);  // 调用回调函数 core.callback(core.result_)
           });
     } catch (...) {
       ew = exception_wrapper(std::current_exception());
     }
     if (ew) {
       RequestContextScopeGuard rctx(std::move(context_));
-      callback_(*this, Executor::KeepAlive<>{}, &ew);
+      callback_(*this, Executor::KeepAlive<>{}, &ew);  // 有异常则直接报错
     }
   } else {
     attached_.fetch_add(1, std::memory_order_relaxed);
