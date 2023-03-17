@@ -21,6 +21,7 @@
 #include <folly/io/Cursor.h>
 #include <folly/io/async/AsyncSocket.h>
 
+#if __has_include(<liburing.h>)
 
 namespace fsp = folly::portability::sockets;
 
@@ -1736,3 +1737,5 @@ void AsyncIoUringSocket::shutdownWriteNow() {
 }
 
 } // namespace folly
+
+#endif

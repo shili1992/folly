@@ -32,7 +32,11 @@
 #include <folly/portability/SysSyscall.h>
 #include <folly/synchronization/CallOnce.h>
 
+#if __has_include(<sys/timerfd.h>)
 #include <sys/timerfd.h>
+#endif
+
+#if __has_include(<liburing.h>)
 
 extern "C" FOLLY_ATTR_WEAK void eb_poll_loop_pre_hook(uint64_t* call_time);
 extern "C" FOLLY_ATTR_WEAK void eb_poll_loop_post_hook(
@@ -2230,3 +2234,4 @@ bool IoUringBackend::kernelSupportsSendZC() {
 
 } // namespace folly
 
+#endif // __has_include(<liburing.h>)

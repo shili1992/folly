@@ -40,10 +40,15 @@
 #include <folly/portability/Asm.h>
 #include <folly/small_vector.h>
 
+#if __has_include(<poll.h>)
 #include <poll.h>
-#include <liburing.h>
-#include <list>
+#endif
 
+#if __has_include(<liburing.h>)
+#include <liburing.h>
+#endif
+
+#if __has_include(<liburing.h>)
 
 namespace folly {
 
@@ -1072,3 +1077,4 @@ class IoUringBackend : public EventBaseBackendBase {
 using PollIoBackend = IoUringBackend;
 } // namespace folly
 
+#endif // __has_include(<liburing.h>)

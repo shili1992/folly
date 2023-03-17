@@ -21,6 +21,7 @@
 
 namespace folly {
 
+#if __has_include(<liburing.h>)
 
 class IoUringEventBaseLocal {
  public:
@@ -30,5 +31,7 @@ class IoUringEventBaseLocal {
       bool use_eventfd = true);
   static IoUringBackend* try_get(EventBase* evb);
 };
+
+#endif
 
 } // namespace folly
