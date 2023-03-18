@@ -18,6 +18,7 @@
 
 #include <folly/experimental/io/AsyncBase.h>
 
+#if __has_include(<libaio.h>)
 
 #include <libaio.h>
 
@@ -95,3 +96,5 @@ class AsyncIO : public AsyncBase {
 
 using AsyncIOQueue = AsyncBaseQueue;
 } // namespace folly
+
+#endif

@@ -66,6 +66,7 @@ inline void FiberManager::ensureLoopScheduled() {
   loopController_->schedule();
 }
 
+// 恢复到 fiber的上下文信息
 inline void FiberManager::activateFiber(Fiber* fiber) {
   DCHECK_EQ(activeFiber_, (Fiber*)nullptr);
 
@@ -89,7 +90,7 @@ inline void FiberManager::activateFiber(Fiber* fiber) {
   __tsan_switch_to_fiber(fiber->tsanCtx_, 0);
 #endif
 
-  fiber->fiberImpl_.activate();
+  fiber->fiberImpl_.activate();  // 恢复到 fiber的上下文信息
 
 #ifdef FOLLY_SANITIZE_THREAD
   __tsan_switch_to_fiber(tsanCtx, 0);
@@ -142,7 +143,7 @@ inline void FiberManager::runReadyFiber(Fiber* fiber) {
 
   while (fiber->state_ == Fiber::NOT_STARTED ||
          fiber->state_ == Fiber::READY_TO_RUN) {
-    activateFiber(fiber);
+    activateFiber(fiber);  // 恢复到 fiber的上下文信息
     if (fiber->state_ == Fiber::AWAITING_IMMEDIATE) {
       try {
         immediateFunc_();
@@ -266,18 +267,21 @@ inline size_t FiberManager::recordStackPosition(size_t position) {
   return newPosition;
 }
 
+// 和这个在main fiber 的运行栈
 inline void FiberManager::loopUntilNoReadyImpl() {
   runFibersHelper([&] {
     SCOPE_EXIT { isLoopScheduled_ = false; };
 
     bool hadRemote = true;
     while (hadRemote) {
+      // 运行所有已经继续的 fiber
       while (!readyFibers_.empty()) {
         auto& fiber = readyFibers_.front();
         readyFibers_.pop_front();
-        runReadyFiber(&fiber);
+        runReadyFiber(&fiber);  // 其他的fiber怎么转化到 main fiber??????
       }
 
+      // 运行 remote ready 队列中所有的 task
       auto hadRemoteFiber = remoteReadyQueue_.sweepOnce(
           [this](Fiber* fiber) { runReadyFiber(fiber); });
 
@@ -285,6 +289,7 @@ inline void FiberManager::loopUntilNoReadyImpl() {
         ++remoteCount_;
       }
 
+      // 运行 remote task 队列中所有的 task.  通过结果add进来的task， 最终在这里得到运行
       auto hadRemoteTask =
           remoteTaskQueue_.sweepOnce([this](RemoteTask* taskPtr) {
             std::unique_ptr<RemoteTask> task(taskPtr);
@@ -383,6 +388,7 @@ Fiber* FiberManager::createTask(F&& func, TaskOptions taskOptions) {
   return fiber;
 }
 
+// 这个必须在FiberManager's thread中运行。直接添加到ready 队列中
 template <typename F>
 void FiberManager::addTask(F&& func, TaskOptions taskOptions) {
   readyFibers_.push_back(
@@ -406,7 +412,8 @@ void FiberManager::addTaskRemote(F&& func) {
     }
     return std::make_unique<RemoteTask>(std::forward<F>(func));
   }();
-  if (remoteTaskQueue_.insertHead(task.release())) {
+
+  if (remoteTaskQueue_.insertHead(task.release())) { // Atomically insert t at the head of the list
     loopController_->scheduleThreadSafe();
   }
 }
@@ -578,6 +585,7 @@ FiberManager::getCurrentTaskRunningTime() const {
   return folly::none;
 }
 
+// Yield execution of the currently running fiber
 inline void FiberManager::yield() {
   assert(getCurrentFiberManager() == this);
   assert(activeFiber_ != nullptr);

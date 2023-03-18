@@ -86,7 +86,7 @@ class FiberManager : public ::folly::Executor {
      * Maximum stack size for fibers which will be used for executing all the
      * tasks.
      */
-    size_t stackSize{kDefaultStackSize};
+    size_t stackSize{kDefaultStackSize};  // 总的栈的大小
 
     /**
      * Sanitizers need a lot of extra stack space. Benchmarks results at
@@ -254,6 +254,7 @@ class FiberManager : public ::folly::Executor {
    *             The object will be destroyed once task execution is complete.
    * @param taskOptions Task specific configs.
    */
+   // 这个必须在FiberManager's thread中运行。直接添加到ready 队列中
   template <typename F>
   void addTask(F&& func, TaskOptions taskOptions = TaskOptions());
 
@@ -312,6 +313,7 @@ class FiberManager : public ::folly::Executor {
   auto addTaskRemoteFuture(F&& func)
       -> folly::Future<folly::lift_unit_t<invoke_result_t<F>>>;
 
+  // addTaskRemote 一个任务
   // Executor interface calls addTaskRemote
   void add(folly::Func f) override { addTaskRemote(std::move(f)); }
 
@@ -489,7 +491,7 @@ class FiberManager : public ::folly::Executor {
    * Same as active fiber, but also set for functions run from fiber on main
    * context.
    */
-  Fiber* currentFiber_{nullptr};
+  Fiber* currentFiber_{nullptr};   // 当前运行 fiber
 
   FiberTailQueue readyFibers_; /**< queue of fibers ready to be executed */
   FiberTailQueue* yieldedFibers_{nullptr}; /**< queue of fibers which have
@@ -575,7 +577,7 @@ class FiberManager : public ::folly::Executor {
       remoteReadyQueue_;
 
   folly::AtomicIntrusiveLinkedList<RemoteTask, &RemoteTask::nextRemoteTask>
-      remoteTaskQueue_;
+      remoteTaskQueue_;  // 远程task, 其他线程add 进来任务
 
   ssize_t remoteCount_{0};
 

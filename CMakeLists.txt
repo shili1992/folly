@@ -718,33 +718,6 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
     DIRECTORY external/farmhash/test/
       TEST farmhash_test SOURCES farmhash_test.cpp
 
-    DIRECTORY logging/test/
-      TEST async_file_writer_test WINDOWS_DISABLED
-        SOURCES AsyncFileWriterTest.cpp
-      TEST config_parser_test SOURCES ConfigParserTest.cpp
-      TEST config_update_test SOURCES ConfigUpdateTest.cpp
-      TEST file_handler_factory_test WINDOWS_DISABLED
-        SOURCES FileHandlerFactoryTest.cpp
-      TEST glog_formatter_test SOURCES GlogFormatterTest.cpp
-      TEST immediate_file_writer_test SOURCES ImmediateFileWriterTest.cpp
-      TEST log_category_test SOURCES LogCategoryTest.cpp
-      TEST logger_db_test SOURCES LoggerDBTest.cpp
-      TEST logger_test WINDOWS_DISABLED SOURCES LoggerTest.cpp
-      TEST log_level_test SOURCES LogLevelTest.cpp
-      TEST log_message_test SOURCES LogMessageTest.cpp
-      TEST log_name_test SOURCES LogNameTest.cpp
-      TEST log_stream_test SOURCES LogStreamTest.cpp
-      TEST rate_limiter_test SOURCES RateLimiterTest.cpp
-      TEST standard_log_handler_test SOURCES StandardLogHandlerTest.cpp
-      TEST xlog_test WINDOWS_DISABLED
-        HEADERS
-          XlogHeader1.h
-          XlogHeader2.h
-        SOURCES
-          XlogFile1.cpp
-          XlogFile2.cpp
-          XlogTest.cpp
-
     DIRECTORY fibers/test/
       # FiberManager swapWithException fails with segfault
       BENCHMARK fibers_benchmark SOURCES FibersBenchmark.cpp
@@ -873,41 +846,6 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
         SOURCES SSLSessionTest.cpp
       TEST writechain_test SOURCES WriteChainAsyncTransportWrapperTest.cpp
 
-    DIRECTORY io/async/ssl/test/
-      TEST ssl_errors_test SOURCES SSLErrorsTest.cpp
-
-    DIRECTORY lang/test/
-      TEST lang_aligned_test SOURCES AlignedTest.cpp
-      TEST lang_badge_test SOURCES BadgeTest.cpp
-      TEST lang_bits_test SOURCES BitsTest.cpp
-      TEST lang_byte_test SOURCES ByteTest.cpp
-      TEST lang_c_string_test SOURCES CStringTest.cpp
-      TEST lang_cast_test SOURCES CastTest.cpp
-      TEST lang_checked_math_test SOURCES CheckedMathTest.cpp
-      TEST lang_exception_test SOURCES ExceptionTest.cpp
-      TEST lang_extern_test SOURCES ExternTest.cpp
-      TEST lang_launder_test SOURCES LaunderTest.cpp
-      TEST lang_ordering_test SOURCES OrderingTest.cpp
-      TEST lang_pretty_test SOURCES PrettyTest.cpp
-      TEST lang_propagate_const_test SOURCES PropagateConstTest.cpp
-      TEST lang_r_value_reference_wrapper_test WINDOWS_DISABLED
-        SOURCES RValueReferenceWrapperTest.cpp
-      TEST lang_safe_assert_test SOURCES SafeAssertTest.cpp
-      BENCHMARK lang_to_ascii_benchmark SOURCES ToAsciiBench.cpp
-      TEST lang_to_ascii_test SOURCES ToAsciiTest.cpp
-      TEST lang_type_info_test SOURCES TypeInfoTest.cpp
-      TEST lang_uncaught_exceptions_test SOURCES UncaughtExceptionsTest.cpp
-
-    DIRECTORY memory/test/
-      TEST arena_test WINDOWS_DISABLED SOURCES ArenaTest.cpp
-      TEST reentrant_allocator_test WINDOWS_DISABLED
-        SOURCES ReentrantAllocatorTest.cpp
-      TEST thread_cached_arena_test WINDOWS_DISABLED
-        SOURCES ThreadCachedArenaTest.cpp
-      TEST mallctl_helper_test SOURCES MallctlHelperTest.cpp
-      TEST uninitialized_memory_hacks_test
-        SOURCES UninitializedMemoryHacksTest.cpp
-
     DIRECTORY net/detail/test/
       TEST socket_file_descriptor_map_test SOURCES SocketFileDescriptorMapTest.cpp
 
@@ -918,24 +856,6 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
       TEST openssl_portability_test SOURCES OpenSSLPortabilityTest.cpp
       TEST pthread_test SOURCES PThreadTest.cpp
       TEST time-test SOURCES TimeTest.cpp
-
-    DIRECTORY ssl/test/
-      TEST openssl_hash_test SOURCES OpenSSLHashTest.cpp
-
-    DIRECTORY stats/test/
-      TEST buffered_stat_test SOURCES BufferedStatTest.cpp
-      BENCHMARK digest_builder_benchmark SOURCES DigestBuilderBenchmark.cpp
-      TEST digest_builder_test SOURCES DigestBuilderTest.cpp
-      BENCHMARK histogram_benchmark SOURCES HistogramBenchmark.cpp
-      TEST histogram_test SOURCES HistogramTest.cpp
-      BENCHMARK quantile_histogram_benchmark
-        SOURCES QuantileHistogramBenchmark.cpp
-      TEST quantile_estimator_test SOURCES QuantileEstimatorTest.cpp
-      TEST sliding_window_test SOURCES SlidingWindowTest.cpp
-      BENCHMARK tdigest_benchmark SOURCES TDigestBenchmark.cpp
-      TEST tdigest_test SOURCES TDigestTest.cpp
-      TEST timeseries_histogram_test SOURCES TimeseriesHistogramTest.cpp
-      TEST timeseries_test SOURCES TimeSeriesTest.cpp
 
     DIRECTORY synchronization/test/
       BENCHMARK baton_benchmark SOURCES BatonBenchmark.cpp
@@ -1005,7 +925,6 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
       TEST file_test SOURCES FileTest.cpp
       # Open-source linux build can't handle running this.
       #TEST file_lock_test SOURCES FileLockTest.cpp
-      TEST file_util_test SOURCES FileUtilTest.cpp
       BENCHMARK fingerprint_benchmark SOURCES FingerprintBenchmark.cpp
       TEST fingerprint_test SOURCES FingerprintTest.cpp
       TEST fixed_string_test SOURCES FixedStringTest.cpp

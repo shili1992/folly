@@ -96,8 +96,10 @@ class AtomicIntrusiveLinkedList {
    * and calls func() on the removed elements in the order from tail to head.
    * Returns false if the list was empty.
    */
+   // 使用func 运行head_上所有的节点
   template <typename F>
   bool sweepOnce(F&& func) {
+      // 运行 head_
     if (auto head = head_.exchange(nullptr)) {
       auto rhead = reverse(head);
       unlinkAll(rhead, std::forward<F>(func));

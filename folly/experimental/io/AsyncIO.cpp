@@ -31,6 +31,9 @@
 #include <folly/portability/Unistd.h>
 #include <folly/small_vector.h>
 
+#if __has_include(<libaio.h>)
+
+
 // debugging helpers
 namespace {
 #define X(c) \
@@ -273,4 +276,6 @@ Range<AsyncBase::Op**> AsyncIO::doWait(
 }
 
 } // namespace folly
+
+#endif
 

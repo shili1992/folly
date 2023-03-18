@@ -85,9 +85,9 @@ class Fiber {
   enum State {
     INVALID, /**< Does't have task function */
     NOT_STARTED, /**< Has task function, not started */
-    READY_TO_RUN, /**< Was started, blocked, then unblocked */
-    RUNNING, /**< Is running right now */
-    AWAITING, /**< Is currently blocked */
+    READY_TO_RUN, /**< Was started, blocked, then unblocked */  // 当前处于可运行装阿嚏
+    RUNNING, /**< Is running right now */   // 当前fiber 是运行状态
+    AWAITING, /**< Is currently blocked */  // 当前fiber 处于阻塞状态
     AWAITING_IMMEDIATE, /**< Was preempted to run an immediate function,
                              and will be resumed right away */
     YIELDED, /**< The fiber yielded execution voluntarily */
@@ -128,7 +128,7 @@ class Fiber {
   size_t fiberStackSize_;
   unsigned char* fiberStackLimit_;
   FiberImpl fiberImpl_; /**< underlying fiber implementation */
-  std::shared_ptr<RequestContext> rcontext_; /**< current RequestContext */
+  std::shared_ptr<RequestContext> rcontext_; /**< current RequestContext */ // 上下文信息
   folly::AsyncStackRoot* asyncRoot_ = nullptr;
   folly::Function<void()> func_; /**< task function */
   bool recordStackUsed_{false};
@@ -203,7 +203,7 @@ class Fiber {
     void* data_{nullptr};
   };
 
-  LocalData localData_;
+  LocalData localData_;  // 用户数据
 
   folly::IntrusiveListHook listHook_; /**< list hook for different FiberManager
                                            queues */

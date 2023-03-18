@@ -53,14 +53,17 @@ size_t nonMagicInBytes(unsigned char* stackLimit, size_t stackSize) {
 
 } // namespace
 
+// 从 该fiber加入到  ready 链表中（ ready 或者 remote_ready）
 void Fiber::resume() {
   DCHECK_EQ(state_, AWAITING);
   state_ = READY_TO_RUN;
 
   if (LIKELY(threadId_ == localThreadId())) {
+    // 在同一个线程中， 则加入到readyFibers_ 链表中
     fiberManager_.readyFibers_.push_back(*this);
     fiberManager_.ensureLoopScheduled();
   } else {
+    // 不在同一个线程，则 加入到 remote_ready中
     fiberManager_.remoteReadyInsert(this);
   }
 }
@@ -176,6 +179,7 @@ void Fiber::recordStackPosition() {
   }
 }
 
+// Switch out of fiber context into the main context
 void Fiber::preempt(State state) {
   auto preemptImpl = [&]() mutable {
     DCHECK_EQ(fiberManager_.activeFiber_, this);
@@ -191,19 +195,19 @@ void Fiber::preempt(State state) {
       prevDuration_ += now - currStartTime_;
       currStartTime_ = now;
     }
-    state_ = state;
+    state_ = state;   // 设置当前fiber 为新状态， yield-> Fiber::YIELDED. wait-> AWAITING
 
     recordStackPosition();
 
-    fiberManager_.deactivateFiber(this);
+    fiberManager_.deactivateFiber(this);  // 后续也是从这里恢复
 
     // Resumed from preemption
     DCHECK_EQ(fiberManager_.activeFiber_, this);
-    DCHECK_EQ(state_, READY_TO_RUN);
+    DCHECK_EQ(state_, READY_TO_RUN);  // 事件继续，将状态改成阻塞等状态改成 READY_TO_RUN了
     if (taskOptions_.logRunningTime) {
       currStartTime_ = std::chrono::steady_clock::now();
     }
-    state_ = RUNNING;
+    state_ = RUNNING;   // fiber恢复后状态变成running
   };
 
   if (fiberManager_.preemptRunner_) {

@@ -68,7 +68,7 @@ void Baton::waitFiber(FiberManager& fm, F&& mainContextFunc) {
   };
 
   fm.awaitFunc_ = std::ref(f);
-  fm.activeFiber_->preempt(Fiber::AWAITING);
+  fm.activeFiber_->preempt(Fiber::AWAITING); // Switch out of fiber context into the main context
 }
 
 template <typename Clock, typename Duration>

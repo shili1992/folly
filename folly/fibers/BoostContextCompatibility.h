@@ -47,6 +47,7 @@ class FiberImpl {
   }
 
   void activate() {
+      // 当前context 切换成下个 context,  后续恢复也将从这个地方恢复 （main fiber -> fiber）
     auto transfer = boost::context::detail::jump_fcontext(fiberContext_, this);
     fiberContext_ = transfer.fctx;
     auto context = reinterpret_cast<intptr_t>(transfer.data);
@@ -54,6 +55,7 @@ class FiberImpl {
   }
 
   void deactivate() {
+    // 相当于从 fiber 切换到 main fiber 继续执行 main的内容
     auto transfer =
         boost::context::detail::jump_fcontext(mainContext_, nullptr);
     mainContext_ = transfer.fctx;
@@ -83,8 +85,8 @@ class FiberImpl {
 
   unsigned char* stackBase_;
   folly::Function<void()> func_;
-  FiberContext fiberContext_;
-  MainContext mainContext_;
+  FiberContext fiberContext_;  // fiber的上下文信息
+  MainContext mainContext_;  // main fiber的上下文
 };
 } // namespace fibers
 } // namespace folly
