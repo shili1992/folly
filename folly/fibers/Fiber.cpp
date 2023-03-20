@@ -53,7 +53,7 @@ size_t nonMagicInBytes(unsigned char* stackLimit, size_t stackSize) {
 
 } // namespace
 
-// 从 该fiber加入到  ready 链表中（ ready 或者 remote_ready）
+// 从 该fiber加入到  ready 链表中（ ready 或者 remote_ready), 很快将就被调度运行
 void Fiber::resume() {
   DCHECK_EQ(state_, AWAITING);
   state_ = READY_TO_RUN;
@@ -174,7 +174,7 @@ void Fiber::recordStackPosition() {
     }
 
     state_ = INVALID;
-
+    // 从 fiber 切换到 main fiber 继续执行 main的内容
     fiberManager_.deactivateFiber(this);
   }
 }
@@ -199,6 +199,7 @@ void Fiber::preempt(State state) {
 
     recordStackPosition();
 
+      //从 fiber 切换到 main fiber 继续执行 main的内容
     fiberManager_.deactivateFiber(this);  // 后续也是从这里恢复
 
     // Resumed from preemption

@@ -66,7 +66,7 @@ void Promise<T, BatonT>::setTry(folly::Try<T>&& t) {
 
   // Baton::post has to be the last step here, since if Promise is not owned by
   // the posting thread, it may be destroyed right after Baton::post is called.
-  baton_->post();
+  baton_->post(); // 设置value的时候 触发baton
 }
 
 template <class T, class BatonT>

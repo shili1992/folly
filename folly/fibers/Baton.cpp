@@ -58,6 +58,7 @@ void Baton::wait(TimeoutHandler& timeoutHandler) {
   timeoutHandler.cancelTimeout();
 }
 
+// 等待线程同步 post
 void Baton::waitThread() {
   auto waiter = waiter_.load();
 

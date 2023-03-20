@@ -28,7 +28,7 @@ class Baton::FiberWaiter : public Baton::Waiter {
     fiber_ = &fiber;
   }
 
-  void post() override { fiber_->resume(); }
+  void post() override { fiber_->resume(); }  // 原来的fiber 直接恢复
 
  private:
   Fiber* fiber_{nullptr};
@@ -49,6 +49,7 @@ inline Baton::Baton() noexcept : Baton(NO_WAITER) {
 template <typename F>
 void Baton::wait(F&& mainContextFunc) {
   auto fm = FiberManager::getFiberManagerUnsafe();
+  // 在pthread中 使用futex 进行同步
   if (!fm || !fm->activeFiber_) {
     mainContextFunc();
     return waitThread();
@@ -57,6 +58,8 @@ void Baton::wait(F&& mainContextFunc) {
   return waitFiber(*fm, std::forward<F>(mainContextFunc));
 }
 
+// fiber 协程中调用 wait
+// mainContextFunc 表示在 main_context中运行的函数
 template <typename F>
 void Baton::waitFiber(FiberManager& fm, F&& mainContextFunc) {
   FiberWaiter waiter;
@@ -68,7 +71,8 @@ void Baton::waitFiber(FiberManager& fm, F&& mainContextFunc) {
   };
 
   fm.awaitFunc_ = std::ref(f);
-  fm.activeFiber_->preempt(Fiber::AWAITING); // Switch out of fiber context into the main context
+  // Switch out of fiber context into the main context，状态变成awaiting状态
+  fm.activeFiber_->preempt(Fiber::AWAITING);
 }
 
 template <typename Clock, typename Duration>

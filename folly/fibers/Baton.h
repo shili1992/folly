@@ -257,7 +257,7 @@ class Baton {
 
   union {
     std::atomic<intptr_t> waiter_;
-    struct _futex_wrapper futex_;
+    struct _futex_wrapper futex_;  // 线程同步使用
   };
 };
 

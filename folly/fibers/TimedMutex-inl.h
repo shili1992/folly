@@ -25,14 +25,18 @@ namespace fibers {
 // TimedMutex implementation
 //
 
+// 如果没有被锁住，则直接获得锁， 返回SUCCESS
+// 如果已经被锁住，则加入到waiter队列中，放弃处理机， 等待解锁
+// waitFunc 触发协程等待的函数
 template <typename WaitFunc>
 TimedMutex::LockResult TimedMutex::lockHelper(WaitFunc&& waitFunc) {
   std::unique_lock<folly::SpinLock> ulock(lock_);
-  if (!locked_) {
+  if (!locked_) {  // 如果没有被锁住，则直接获得锁， 返回SUCCESS
     locked_ = true;
     return LockResult::SUCCESS;
   }
 
+  // 如果已经被锁住，则加入到waiter队列中，放弃处理机， 等待解锁
   const auto isOnFiber = onFiber();
 
   if (!isOnFiber && notifiedFiber_ != nullptr) {
@@ -49,22 +53,24 @@ TimedMutex::LockResult TimedMutex::lockHelper(WaitFunc&& waitFunc) {
   // when the mutex isn't locked.
   MutexWaiter waiter;
   if (isOnFiber) {
-    fiberWaiters_.push_back(waiter);
+    fiberWaiters_.push_back(waiter);  // 添加到等待队列中
   } else {
     threadWaiters_.push_back(waiter);
   }
 
-  ulock.unlock();
+  ulock.unlock();  // 在切换协程之前需要释放锁
 
+  // 这里放弃fiber的处理机
   if (!waitFunc(waiter)) {
     return LockResult::TIMEOUT;
   }
 
+  // 这是是fiber 获得锁恢复后执行
   if (isOnFiber) {
     auto lockStolen = [&] {
       std::lock_guard<folly::SpinLock> lg(lock_);
 
-      auto stolen = notifiedFiber_ != &waiter;
+      auto stolen = (notifiedFiber_ != &waiter);
       if (!stolen) {
         notifiedFiber_ = nullptr;
       }
@@ -82,8 +88,10 @@ TimedMutex::LockResult TimedMutex::lockHelper(WaitFunc&& waitFunc) {
 inline void TimedMutex::lock() {
   LockResult result;
   do {
+// 如果没有被锁住，则直接获得锁， 返回SUCCESS
+// 如果已经被锁住，则加入到waiter队列中，放弃处理机， 等待解锁
     result = lockHelper([](MutexWaiter& waiter) {
-      waiter.baton.wait();
+      waiter.baton.wait();  //放弃处理机
       return true;
     });
 
@@ -139,12 +147,13 @@ inline bool TimedMutex::try_lock() {
   return true;
 }
 
+// 从队列头取出一个waiter进行解锁
 inline void TimedMutex::unlock() {
   std::lock_guard<folly::SpinLock> lg(lock_);
-  if (!threadWaiters_.empty()) {
+  if (!threadWaiters_.empty()) {  // 从队列头获取一个waiter 唤醒
     auto& to_wake = threadWaiters_.front();
     threadWaiters_.pop_front();
-    to_wake.baton.post();
+    to_wake.baton.post();  // 这里唤醒一个waiter
   } else if (!fiberWaiters_.empty()) {
     auto& to_wake = fiberWaiters_.front();
     fiberWaiters_.pop_front();

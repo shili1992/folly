@@ -27,6 +27,7 @@
 namespace folly {
 namespace fibers {
 
+// 用于在 EventBase 上运行 Fiber。
 class EventBaseLoopController : public ExecutorBasedLoopController {
  public:
   explicit EventBaseLoopController();

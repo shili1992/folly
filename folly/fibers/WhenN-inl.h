@@ -21,6 +21,8 @@
 namespace folly {
 namespace fibers {
 
+// 这个函数是 folly 库中的 collectN 函数，它的作用是等待一个由多个 Future 组成的数组中的
+// 前 n 个 Future 完成，并返回它们的结果。
 template <class InputIterator>
 typename std::enable_if<
     !std::is_same<
@@ -40,10 +42,10 @@ collectN(InputIterator first, InputIterator last, size_t n) {
   assert(n <= static_cast<size_t>(std::distance(first, last)));
 
   struct Context {
-    std::vector<std::pair<size_t, Result>> results;
-    size_t tasksTodo;
+    std::vector<std::pair<size_t, Result>> results; // 用于存储已经完成的 Future 的结果
+    size_t tasksTodo;       // 表示还有多少个 Future 没有完成
     std::exception_ptr e;
-    folly::Optional<Promise<void>> promise;
+    folly::Optional<Promise<void>> promise;  // 用于在所有n个 Future 完成后通知调用者
 
     Context(size_t tasksTodo_) : tasksTodo(tasksTodo_) {
       this->results.reserve(tasksTodo_);
@@ -53,7 +55,7 @@ collectN(InputIterator first, InputIterator last, size_t n) {
 
   await_async([first, last, context](Promise<void> promise) mutable {
     context->promise = std::move(promise);
-    for (size_t i = 0; first != last; ++i, ++first) {
+    for (size_t i = 0; first != last; ++i, ++first) { // 于每个 Future，都会创建一个新的 Task，并将其加入到 FiberManager 的任务队列中
       addTask([i, context, f = std::move(*first)]() {
         try {
           auto result = f();
@@ -67,7 +69,7 @@ collectN(InputIterator first, InputIterator last, size_t n) {
           }
           context->e = std::current_exception();
         }
-        if (--context->tasksTodo == 0) {
+        if (--context->tasksTodo == 0) { // 表示n哥 Future 都已经完成，此时调用 promise->setValue() 函数通知调用者
           context->promise->setValue();
         }
       });
@@ -94,7 +96,7 @@ collectN(InputIterator first, InputIterator last, size_t n) {
   assert(n <= static_cast<size_t>(std::distance(first, last)));
 
   struct Context {
-    std::vector<size_t> taskIndices;
+    std::vector<size_t> taskIndices;  // 而是返回已经完成的 Future 在数组中的下标
     std::exception_ptr e;
     size_t tasksTodo;
     folly::Optional<Promise<void>> promise;
@@ -132,7 +134,7 @@ collectN(InputIterator first, InputIterator last, size_t n) {
     std::rethrow_exception(context->e);
   }
 
-  return context->taskIndices;
+  return context->taskIndices;  // 返回已经完成的 Future 在数组中的下标
 }
 
 template <class InputIterator>

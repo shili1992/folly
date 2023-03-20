@@ -97,6 +97,7 @@ inline void FiberManager::activateFiber(Fiber* fiber) {
 #endif
 }
 
+//    从 fiber 切换到 main fiber 继续执行 main的内容
 inline void FiberManager::deactivateFiber(Fiber* fiber) {
   DCHECK_EQ(activeFiber_, fiber);
 
@@ -118,7 +119,7 @@ inline void FiberManager::deactivateFiber(Fiber* fiber) {
 #endif
 
   activeFiber_ = nullptr;
-  fiber->fiberImpl_.deactivate();
+  fiber->fiberImpl_.deactivate(); //从 fiber 切换到 main fiber 继续执行 main的内容
 }
 
 inline void FiberManager::runReadyFiber(Fiber* fiber) {
@@ -143,20 +144,24 @@ inline void FiberManager::runReadyFiber(Fiber* fiber) {
 
   while (fiber->state_ == Fiber::NOT_STARTED ||
          fiber->state_ == Fiber::READY_TO_RUN) {
-    activateFiber(fiber);  // 恢复到 fiber的上下文信息
-    if (fiber->state_ == Fiber::AWAITING_IMMEDIATE) {
+
+    activateFiber(fiber);  // 激活的上下文信息， 这个fiber运行完毕或者block之后，继续恢复到这里运行。
+
+    if (fiber->state_ == Fiber::AWAITING_IMMEDIATE) { // 如果是AWAITING_IMMEDIATE -> fiber运行了runInMainContext，
       try {
-        immediateFunc_();
+        immediateFunc_();  //在main context中运行 fiber运行了runInMainContext添加要运行的函数
       } catch (...) {
         exceptionCallback_(std::current_exception(), "running immediateFunc_");
       }
       immediateFunc_ = nullptr;
-      fiber->state_ = Fiber::READY_TO_RUN;
+      fiber->state_ = Fiber::READY_TO_RUN;  // 状态重新变成成 READY_TO_RUN， 然后继续执行这个fiber
     }
-  }
+  } //end while
 
+  // fiber运行完了， 或者 fiber调用wait阻塞了，调用 preempt放弃处理机，然后恢复到 main_context中
   if (fiber->state_ == Fiber::AWAITING) {
-    awaitFunc_(*fiber);
+      // 调用了 waitFiber 之后
+    awaitFunc_(*fiber);  // 运行 waitFiber中设置的 func
     awaitFunc_ = nullptr;
     if (observer_) {
       observer_->stopped(reinterpret_cast<uintptr_t>(fiber));
@@ -543,6 +548,9 @@ void FiberManager::addTaskFinallyEager(F&& func, G&& finally) {
       createTaskFinally(std::forward<F>(func), std::forward<G>(finally)));
 }
 
+//  If called from a fiber, immediately switches to the FiberManager's context
+//  and runs func(), going back to the Fiber's context after completion.
+//  Outside a fiber, just calls func() directly.
 template <typename F>
 invoke_result_t<F> FiberManager::runInMainContext(F&& func) {
   if (UNLIKELY(activeFiber_ == nullptr)) {
@@ -555,14 +563,15 @@ invoke_result_t<F> FiberManager::runInMainContext(F&& func) {
   auto f = [&func, &result]() mutable {
     tryEmplaceWithNoInline(result, std::forward<F>(func));
   };
-
+//        IMPORTANT: Make sure you don't do any blocking calls on main context though.
+//        It will suspend the whole system thread, not just the fiber-task which was running.
   immediateFunc_ = std::ref(f);
   activeFiber_->preempt(Fiber::AWAITING_IMMEDIATE);
 
   return std::move(result).value();
 }
 
-inline FiberManager& FiberManager::getFiberManager() {
+inline FiberManager& FiberManager::xgetFiberManager() {
   assert(getCurrentFiberManager() != nullptr);
   return *getCurrentFiberManager();
 }

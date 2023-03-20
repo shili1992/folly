@@ -73,15 +73,16 @@ class TimedMutex {
 
   // represents a waiter waiting for the lock. The waiter waits on the
   // baton until it is woken up by a post or timeout expires.
+  // 等待在 waiter 上的 water
   struct MutexWaiter {
-    Baton baton;
+    Baton baton;  // 每个waiter 一个baton
     folly::IntrusiveListHook hook;
   };
 
   using MutexWaiterList = folly::IntrusiveList<MutexWaiter, &MutexWaiter::hook>;
 
   folly::SpinLock lock_; //< lock to protect waiter list
-  bool locked_ = false; //< is this locked by some thread?
+  bool locked_ = false; //< is this locked by some thread? 表示是否被锁住
   MutexWaiterList threadWaiters_; //< list of waiters
   MutexWaiterList fiberWaiters_; //< list of waiters
   MutexWaiter* notifiedFiber_{nullptr}; //< Fiber waiter which has been notified

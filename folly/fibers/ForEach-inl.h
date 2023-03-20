@@ -37,6 +37,7 @@ typename std::enable_if<std::is_same<invoke_result_t<F>, void>::value, void>::
 
 } // namespace
 
+// 作用是对一个范围内的元素执行一个函数
 template <class InputIterator, class F>
 inline void forEach(InputIterator first, InputIterator last, F&& f) {
   if (first == last) {
@@ -61,7 +62,7 @@ inline void forEach(InputIterator first, InputIterator last, F&& f) {
       } catch (...) {
         e = std::current_exception();
       }
-      if (--tasksTodo == 0) {
+      if (--tasksTodo == 0) { // 使用了一个计数器来跟踪还有多少个任务需要完成，当所有任务完成时，该函数会返回
         baton.post();
       }
     };
@@ -70,12 +71,12 @@ inline void forEach(InputIterator first, InputIterator last, F&& f) {
   auto firstTask = first;
   ++first;
 
-  for (size_t i = 1; first != last; ++i, ++first, ++tasksTodo) {
+  for (size_t i = 1; first != last; ++i, ++first, ++tasksTodo) { // 对所有的函数执行
     addTask(taskFunc(i, std::move(*first)));
   }
 
   taskFunc(0, std::move(*firstTask))();
-  baton.wait();
+  baton.wait(); // 使用了一个Baton对象来等待所有任务完成 
 
   if (e != std::exception_ptr()) {
     std::rethrow_exception(e);
